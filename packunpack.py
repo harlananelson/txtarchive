@@ -223,6 +223,7 @@ def combine_all_archives(parent_directory, combined_archive_dir=None, combined_a
         directories (list): List of directories to include in the combined archive.
     """
     all_archives_content = ""
+    logger.info("Combining all archives into a single file...")
 
     parent_directory = Path(parent_directory)
     if directories is None:
@@ -233,6 +234,8 @@ def combine_all_archives(parent_directory, combined_archive_dir=None, combined_a
     for item in directories:
         archive_file_name = f"{item.name}_{combined_archive_name}.txt"
         archive_file = (combined_archive_dir / archive_file_name) if combined_archive_dir else (parent_directory / archive_file_name)
+        logger.info("Combining archive file: %s", archive_file)
+
         
         if archive_file.is_file():
             with archive_file.open('r') as file:

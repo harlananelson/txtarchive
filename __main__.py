@@ -1,12 +1,21 @@
 import argparse 
 import logging 
-from .packunpack import run_concat, run_unpack
+from .packunpack import run_concat, run_unpack, archive_subdirectories
 from .header import logger
 
 
 # to run
 # Add the current directory to the python path
 # export PYTHONPATH=$PYTHONPATH:.
+
+# python -m txtarchive run_concat "IU-Diabetes-Diagnosis" "IU-Diabetes-Diagnosis/IU-Diabetes-Diagnosis-archive.txt" --file_types .ipynb .yaml .py
+
+
+# archive_subdirectories("Projects/IU-Diabetes-Diagnosis", "Projects/IU-Diabetes-Diagnosis.txt", [".ipynb", ".yaml"])
+
+
+# python -m txtarchive run_concat "Projects/Demographics" "Projects/demographics.txt" --file_types .ipynb .yaml
+
 
 # make sure your are in the root directory of the package, that is the directory containing the txtarchive directory
 # archive the txtarchive package
@@ -62,6 +71,35 @@ def main():
     parser = argparse.ArgumentParser(description="textarchive command line utility.")
     subparsers = parser.add_subparsers(dest='command', help = 'Available commands')
     
+    # Sub parser for archive_subdirectories command
+    archive_parser = subparsers.add_parser('archive_subdirectories', help='Archive subdirectories of a parent directory')
+    archive_parser.add_argument('parent_directory', type=str, help='Parent directory containing subdirectories to archive')
+    archive_parser.add_argument('--directories', nargs='+', help='List of subdirectories to archive (default: all subdirectories)', default=None)
+    archive_parser.add_argument('--combined_archive_dir', type=str, help='Directory to store the combined archive file (default: parent directory)', default=None)
+    archive_parser.add_argument('--combined_archive_name', type=str, help='Name of the combined archive file (default: all_combined_archives.txt)', default='all_combined_archives.txt')
+    archive_parser.add_argument('--file_types', nargs='+', default=['.yaml', '.py', '.r'], help='List of file extensions to include in the archive')
+    
+    # Sub parser for the run_concat command
+    concat_parser = subparsers.add_parser('run_concat', help='Concatenate files in a directory')
+    concat_parser.add_argument('current_directory', type=str, help='Directory containing files to concatenate')
+    concat_parser.add_argument('combined_files', type=str, help='Path to the output file')
+    concat_parser.add_argument('--file_types', nargs='+', default=['.yaml', '.py', '.r'], help='List of file extensions to include')
+    
+    # Sub parser for the run_unpack command
+    unpack_parser = subparsers.add_parser('run_unpack', help='Unpack files from a combined file')
+    unpack_parser.add_argument('combined_file_path', type=str, help='Path to the combined text file')
+    unpack_parser.add_argument('output_directory', type=str, help='Directory to output the unpacked files')
+    unpack_parser.add_argument('--replace_existing', action='store_true', help='Replace existing files if they exist')
+    
+    args = parser.parse_args()
+    
+    if args.command == 'archive_subdirectories':
+        archive_subdirectories(args.parent_directory, args.directories, args.combined_archive_dir, args.combined_archive_name, args.file_types)
+    elif args.command == 'run_concat':
+        run_concat(args.current_directory, args.combined_files, args.file_types)
+    elif args.command == 'run_unpack':
+        run_unpack(args.combined_file_path, args.output_directory, args.replace_existing)
+
     # Sub parser for the run_concat command
     concat_parser = subparsers.add_parser('run_concat', help='Concatenate files in a directory')
     concat_parser.add_argument('current_directory', type=str, help='Directory containing files to concatenate')
@@ -82,6 +120,8 @@ def main():
     elif args.command == 'run_unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
         run_unpack(args.combined_file_path, args.output_directory, replace_existing=args.replace_existing)
+    elif args.command == 'archive_subdirectories':
+        archive_subdirectories(args.parent_directory, args.directories, args.combined_archive_dir, args.combined_archive_name, args.file_types)
     else:
         parser.print_help()
         
