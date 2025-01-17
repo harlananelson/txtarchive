@@ -2,17 +2,15 @@ import json
 from pathlib import Path
 from .header import logger
 
-
-
 def read_notebook(notebook_path):
     """
-    Read a Jupyter notebook file and handle encoding issuesreturn the content.
+    Read a Jupyter notebook file and handle encoding issues. Return the content.
 
     Args:
         notebook_path (Path): Path to the Jupyter notebook file.
 
     Returns:
-        dict: The notebook content as a dictioary, or None if an error occurs.
+        dict: The notebook content as a dictionary, or None if an error occurs.
     """
     try:
         with notebook_path.open('r', encoding='utf-8', errors='replace') as file:
@@ -24,23 +22,22 @@ def read_notebook(notebook_path):
     except Exception as e:
         logger.error(f"Error reading {notebook_path}: {e}")
         return None
-    
+
 def remove_outputs_from_code_cells(notebook):
     """
     Remove the output from code cells in a Jupyter notebook.
 
     Args:
-        notebook (dict)): The notebook content as a dictionary.
-        
+        notebook (dict): The notebook content as a dictionary.
+
     Returns:
         dict: The notebook content with outputs stripped.
-        
     """
     for cell in notebook.get('cells', []):
         if cell['cell_type'] == 'code':
             cell['outputs'] = []
     return notebook
-    
+
 def strip_outputs_from_ipynb(file_path):
     """
     Remove the output from a Jupyter notebook and preserve only the code.
@@ -76,14 +73,11 @@ def concatenate_files(directory, combined_file_path, file_types=['.yaml', '.py',
     all_contents = ""
 
     for path in directory.rglob('*'):
-        if path.is_file() and not path.name.startswith(('.', '#')):
+        if path.is_file() and not path.name.startswith(('.', '#')) and directory in path.parents:
             content = None
 
             if path.suffix == '.ipynb':
                 logger.info("Archiving %s", path.name)
-                # fix error 2024-07-11 14:48:23,109 - ERROR - Error processing ..\sicklecell\SickleCell\100-Sickle-Cell-Survival-Curves.ipynb: 'charmap' codec cant decode byte 0x9d in position 96701: character maps to <undefined>
-                # remove characters like byte 0x9d
-            
                 content = read_notebook(path)
                 if content is not None:
                     content = remove_outputs_from_code_cells(content)
@@ -96,7 +90,7 @@ def concatenate_files(directory, combined_file_path, file_types=['.yaml', '.py',
                 except FileNotFoundError:
                     logger.error("File not found: %s", path)
                     continue
-            
+
             if content is not None:
                 all_contents += f"---\nFilename: {path.name}\n---\n{content}\n\n"
 
@@ -116,30 +110,21 @@ def unpack_files(combined_file_path, output_directory, replace_existing=False):
         combined_content = file.read()
 
     sections = combined_content.split('---\nFilename: ')[1:]
-    
-    # Shouldn't the creation of the parent directory be outside the loop?
+
     if not output_directory.exists():
         try:
             output_directory.mkdir(parents=True, exist_ok=True)
             logger.info("Created directory: %s", output_directory)
-            create_parent_directory = True
         except Exception as e:
             logger.error(f"Error creating directory {output_directory}: {e}")
-            # exit the function if the directory cannot be created
             return
     else:
         logger.info("Directory already exists: %s", output_directory)
-        
-    
+
     for section in sections:
-        # Split the section into filename and content
-        # A file will be written for each section
         filename, content = section.split('\n---\n', 1)
         output_path = output_directory / filename.strip()
-        # check to see if the file already exists
         if output_path.exists() and not replace_existing:
-            # add and "_copy" to the filename
-            logger.info(F"File already exists: {output_path} and replace_existing={replace_existing}")
             output_path = output_directory / f"{filename.strip()}_copy"
         with output_path.open('w') as file:
             file.write(content)
@@ -155,13 +140,11 @@ def run_concat(current_directory, combined_files='combined_files.txt', file_type
         combined_files (Path): Path to the output file.
         file_types (list): List of file extensions to include.
     """
-    
-    # Convert inputs to Path objects if they are strings
     if isinstance(current_directory, str):
         current_directory = Path(current_directory)
     if isinstance(combined_files, str):
         combined_files = Path(combined_files)
-        
+
     concatenate_files(current_directory, combined_files, file_types=file_types)
 
 def run_unpack(combined_file_path, output_directory, replace_existing=False):
@@ -172,12 +155,11 @@ def run_unpack(combined_file_path, output_directory, replace_existing=False):
         combined_file_path (Path): Path to the combined text file.
         output_directory (Path): Directory to output the unpacked files.
     """
-    
     if isinstance(combined_file_path, str):
         combined_file_path = Path(combined_file_path)
     if isinstance(output_directory, str):
         output_directory = Path(output_directory)
-        
+
     unpack_files(combined_file_path, output_directory, replace_existing=replace_existing)
     logger.info("Files have been unpacked into: %s", output_directory)
 
@@ -236,7 +218,6 @@ def combine_all_archives(parent_directory, combined_archive_dir=None, combined_a
         archive_file = (combined_archive_dir / archive_file_name) if combined_archive_dir else (parent_directory / archive_file_name)
         logger.info("Combining archive file: %s", archive_file)
 
-        
         if archive_file.is_file():
             with archive_file.open('r') as file:
                 content = file.read()
@@ -268,7 +249,7 @@ def unpack_all_archives(parent_directory, combined_archive_name='all_combined_ar
         directory_name, content = section.split('\n---\n', 1)
         directory_path = parent_directory / directory_name.strip()
         directory_path.mkdir(parents=True, exist_ok=True)
-        
+
         archive_file_path = directory_path / 'combined_files.txt'
         if archive_file_path.exists() and not overwrite:
             archive_file_path = directory_path / 'combined_files_copy.txt'
