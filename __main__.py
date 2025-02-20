@@ -7,6 +7,7 @@ from .header import logger
 # Add the current directory to the python path
 # export PYTHONPATH=$PYTHONPATH:.
 
+# python -m txtarchive run_concat "adhocquery" "adhocquery-archive.txt" --file_types .ipynb .yaml .py
 # python -m txtarchive run_concat "IU-Diabetes-Diagnosis" "IU-Diabetes-Diagnosis/IU-Diabetes-Diagnosis-archive.txt" --file_types .ipynb .yaml .py
 
 # archive_subdirectories("Projects/IU-Diabetes-Diagnosis", "Projects/IU-Diabetes-Diagnosis.txt", [".ipynb", ".yaml"])
