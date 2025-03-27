@@ -1,11 +1,14 @@
 import argparse
 import logging
-from .packunpack import run_concat, run_unpack, archive_subdirectories
+from .packunpack import run_concat, run_unpack, archive_subdirectories, run_concat_no_subdirs
 from .header import logger
 
 # to run
 # Add the current directory to the python path
 # export PYTHONPATH=$PYTHONPATH:.
+
+# In your command line:
+# python -m txtarchive run_concat_no_subdirs "Projects/SickleCell" "Projects/SickleCell.txt" --file_types .ipynb
 
 # python -m txtarchive run_concat "adhocquery" "adhocquery-archive.txt" --file_types .ipynb .yaml .py
 # python -m txtarchive run_concat "IU-Diabetes-Diagnosis" "IU-Diabetes-Diagnosis/IU-Diabetes-Diagnosis-archive.txt" --file_types .ipynb .yaml .py
@@ -68,6 +71,14 @@ def main():
     parser = argparse.ArgumentParser(description="textarchive command line utility.")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
+    # Add to your subparsers in main()
+    concat_no_subdirs_parser = subparsers.add_parser('run_concat_no_subdirs', help='Concatenate files in a directory (no subdirectories)')
+    concat_no_subdirs_parser.add_argument('current_directory', type=str, help='Directory containing files to concatenate')
+    concat_no_subdirs_parser.add_argument('combined_files', type=str, help='Path to the output file')
+    concat_no_subdirs_parser.add_argument('--file_types', nargs='+', default=['.yaml', '.py', '.r'], help='List of file extensions to include')
+
+    
+
     # Sub parser for archive_subdirectories command
     archive_parser = subparsers.add_parser('archive_subdirectories', help='Archive subdirectories of a parent directory')
     archive_parser.add_argument('parent_directory', type=str, help='Parent directory containing subdirectories to archive')
@@ -96,7 +107,9 @@ def main():
         run_concat(args.current_directory, args.combined_files, file_types=args.file_types)
     elif args.command == 'run_unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
-        run_unpack(args.combined_file_path, args.output_directory, replace_existing=args.replace_existing)
+        run_unpack(args.combined_file_path, args.output_directory, replace_existing=args.replace_existing)# Add to your if/elif chain in main()
+    elif args.command == 'run_concat_no_subdirs':
+        run_concat_no_subdirs(args.current_directory, args.combined_files, file_types=args.file_types)
     else:
         parser.print_help()
 
