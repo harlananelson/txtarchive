@@ -145,6 +145,7 @@ def run_concat_no_subdirs(
     current_directory,
     combined_files="combined_files.txt",
     file_types=[".yaml", ".py", ".r"],
+    file_prefixes=None,  # New parameter for filtering by prefix
 ):
     """
     Concatenate files of specified types in just the top-level directory (no subdirectories).
@@ -153,6 +154,7 @@ def run_concat_no_subdirs(
         current_directory (Path): Directory to search for files.
         combined_files (Path): Path to the output file.
         file_types (list): List of file extensions to include.
+        file_prefixes (list): List of prefixes to filter filenames (default is None, which includes all files).
     """
     if isinstance(current_directory, str):
         current_directory = Path(current_directory)
@@ -166,6 +168,10 @@ def run_concat_no_subdirs(
 
     # Use glob instead of rglob to only search the top level
     for path in current_directory.glob("*"):
+        # Check if the file matches the prefix filter (if any)
+        if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
+            continue
+            
         if path.is_file() and not path.name.startswith((".", "#")):
             content = None
 
@@ -360,7 +366,96 @@ def unpack_all_archives(
         unpack_files(archive_file_path, directory_path)
         logger.info("Unpacked archive in: %s", directory_path)
 
-
-# Example usage
-# parent_directory = '/path/to/Projects'
-# unpack_all_archives(parent_directory)
+def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", ".r", ".ipynb", ".sh"]):
+    """
+    Create a single text file containing all code from the specified directory,
+    formatted in a way that's ideal for input to an LLM.
+    
+    Args:
+        directory (Path): Directory to search for files.
+        output_file_path (Path): Path to the output file.
+        file_types (list): List of file extensions to include.
+    """
+    from pathlib import Path
+    import json
+    import datetime
+    from .header import logger
+    
+    if isinstance(directory, str):
+        directory = Path(directory)
+    if isinstance(output_file_path, str):
+        output_file_path = Path(output_file_path)
+    
+    logger.info(f"Creating LLM-friendly archive from directory: {directory}")
+    all_contents = ""
+    
+    # Add a header with information about the archive
+    all_contents += f"# LLM-FRIENDLY CODE ARCHIVE\n"
+    all_contents += f"# Generated from: {directory}\n"
+    all_contents += f"# Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    
+    # Track processed files for the table of contents
+    file_list = []
+    
+    # First pass: collect all files to process
+    for path in directory.rglob("*"):
+        if (path.is_file() and 
+            not path.name.startswith((".", "#")) and 
+            path.suffix in file_types):
+            rel_path = path.relative_to(directory)
+            file_list.append((rel_path, path))
+    
+    # Sort files by relative path for better organization
+    file_list.sort(key=lambda x: str(x[0]))
+    
+    # Generate table of contents
+    all_contents += "# TABLE OF CONTENTS\n"
+    for idx, (rel_path, _) in enumerate(file_list, 1):
+        all_contents += f"{idx}. {rel_path}\n"
+    all_contents += "\n\n"
+    
+    # Second pass: process and add file contents
+    for idx, (rel_path, path) in enumerate(file_list, 1):
+        logger.info(f"Processing {path.name}")
+        
+        # Add a clear section header for each file
+        all_contents += f"{'#' * 80}\n"
+        all_contents += f"# FILE {idx}: {rel_path}\n"
+        all_contents += f"{'#' * 80}\n\n"
+        
+        content = None
+        
+        if path.suffix == ".ipynb":
+            # For Jupyter notebooks, extract only the code cells without outputs
+            try:
+                with path.open("r", encoding="utf-8", errors="replace") as file:
+                    notebook = json.load(file)
+                
+                # Extract code from each cell
+                for cell_idx, cell in enumerate(notebook.get("cells", []), 1):
+                    if cell["cell_type"] == "code":
+                        cell_content = "".join(cell.get("source", []))
+                        if cell_content.strip():  # Only include non-empty cells
+                            all_contents += f"# Cell {cell_idx}\n"
+                            all_contents += cell_content
+                            all_contents += "\n\n"
+            except Exception as e:
+                logger.error(f"Error processing notebook {path}: {e}")
+                all_contents += f"# Error processing notebook: {e}\n\n"
+        else:
+            # For regular code files, include the entire content
+            try:
+                with path.open("r", encoding="utf-8", errors="replace") as file:
+                    content = file.read()
+                    all_contents += content
+                    all_contents += "\n\n"
+            except Exception as e:
+                logger.error(f"Error reading {path}: {e}")
+                all_contents += f"# Error reading file: {e}\n\n"
+    
+    # Write the combined content to the output file
+    with output_file_path.open("w", encoding="utf-8") as file:
+        file.write(all_contents)
+    
+    logger.info(f"LLM-friendly archive created at: {output_file_path}")
+    return output_file_path

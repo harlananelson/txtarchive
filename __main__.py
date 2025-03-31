@@ -1,13 +1,18 @@
 import argparse
 import logging
 from .packunpack import run_concat, run_unpack, archive_subdirectories, run_concat_no_subdirs
+from .packunpack import create_llm_archive
 from .header import logger
 
 # to run
 # Add the current directory to the python path
 # export PYTHONPATH=$PYTHONPATH:.
 
+# Create an archive for LLM
+# python -m txtarchive create_llm_archive "txtarchive" "txtarchive_llm.txt" --file_types .py .yaml
+
 # In your command line:
+# python -m txtarchive run_concat_no_subdirs "Projects/SickleCell" "Projects/SickleCell.txt" --file_types .ipynb --file_prefixes 011 015 016 017 050 060 065 066 067 070 
 # python -m txtarchive run_concat_no_subdirs "Projects/SickleCell" "Projects/SickleCell.txt" --file_types .ipynb
 
 # python -m txtarchive run_concat "adhocquery" "adhocquery-archive.txt" --file_types .ipynb .yaml .py
@@ -71,11 +76,22 @@ def main():
     parser = argparse.ArgumentParser(description="textarchive command line utility.")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
+
+    # This is the part of __main__.py to modify
+
+    
     # Add to your subparsers in main()
     concat_no_subdirs_parser = subparsers.add_parser('run_concat_no_subdirs', help='Concatenate files in a directory (no subdirectories)')
     concat_no_subdirs_parser.add_argument('current_directory', type=str, help='Directory containing files to concatenate')
     concat_no_subdirs_parser.add_argument('combined_files', type=str, help='Path to the output file')
     concat_no_subdirs_parser.add_argument('--file_types', nargs='+', default=['.yaml', '.py', '.r'], help='List of file extensions to include')
+    concat_no_subdirs_parser.add_argument('--file_prefixes', nargs='+', help='List of filename prefixes to include')  # New argument
+
+    llm_archive_parser = subparsers.add_parser('create_llm_archive', help='Create a single LLM-friendly archive of all code')
+    llm_archive_parser.add_argument('directory', type=str, help='Directory containing code to archive')
+    llm_archive_parser.add_argument('output_file', type=str, help='Path to the output file')
+    llm_archive_parser.add_argument('--file_types', nargs='+', default=['.py', '.yaml', '.r', '.ipynb', '.sh'], 
+                              help='List of file extensions to include')
 
     
 
@@ -107,9 +123,11 @@ def main():
         run_concat(args.current_directory, args.combined_files, file_types=args.file_types)
     elif args.command == 'run_unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
-        run_unpack(args.combined_file_path, args.output_directory, replace_existing=args.replace_existing)# Add to your if/elif chain in main()
+        run_unpack(args.combined_file_path, args.output_directory, replace_existing=args.replace_existing)
     elif args.command == 'run_concat_no_subdirs':
-        run_concat_no_subdirs(args.current_directory, args.combined_files, file_types=args.file_types)
+        run_concat_no_subdirs(args.current_directory, args.combined_files, file_types=args.file_types, file_prefixes=args.file_prefixes)
+    elif args.command == 'create_llm_archive':
+        create_llm_archive(args.directory, args.output_file, file_types=args.file_types)
     else:
         parser.print_help()
 
