@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from .header import logger
+from datetime import datetime, timedelta, date, time #example
 
 
 def read_notebook(notebook_path):
@@ -67,11 +68,6 @@ def strip_outputs_from_ipynb(file_path):
 def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py", ".r"]):
     """
     Concatenate files of specified types in a directory into a single text file.
-
-    Args:
-        directory (Path): Directory to search for files.
-        combined_file_path (Path): Path to the output file.
-        file_types (list): List of file extensions to include.
     """
     logger.info("Concatenating files in directory: %s", directory)
     all_contents = ""
@@ -83,6 +79,13 @@ def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py",
             and directory in path.parents
         ):
             content = None
+            # Get relative path from the base directory for unique identification
+            rel_path = path.relative_to(directory)
+            
+            # Special handling for __init__.py files
+            is_init_file = path.name == "__init__.py"
+            if is_init_file:
+                logger.info(f"Found __init__.py file at {path}, attempting to read...")
 
             if path.suffix == ".ipynb":
                 logger.info("Archiving %s", path.name)
@@ -93,19 +96,33 @@ def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py",
             elif path.suffix in file_types:
                 logger.info("Processing %s", path.name)
                 try:
-                    with path.open("r") as file:
+                    with path.open("r", encoding="utf-8") as file:  # Explicitly use utf-8 encoding
                         content = file.read()
+                        if is_init_file:
+                            logger.info(f"Successfully read __init__.py, content length: {len(content)}")
+                            logger.info(f"First 50 characters: {repr(content[:50])}")  # Debug: see what's in the content
                 except FileNotFoundError:
                     logger.error("File not found: %s", path)
                     continue
+                except Exception as e:
+                    logger.error(f"Error reading file {path}: {str(e)}")
+                    continue
 
             if content is not None:
-                all_contents += f"---\nFilename: {path.name}\n---\n{content}\n\n"
+                if is_init_file:
+                    logger.info(f"Adding __init__.py content to archive, path: {rel_path}")
+                
+                # Use relative path in the filename identifier to make it unique
+                all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+            elif is_init_file:
+                logger.warning(f"No content was obtained from __init__.py at {path}")
 
-    with combined_file_path.open("w") as file:
+    # Add debug: Log the total size of all_contents before writing
+    logger.info(f"Total content size to write: {len(all_contents)} bytes")
+    
+    with combined_file_path.open("w", encoding="utf-8") as file:  # Explicitly use utf-8 encoding
         file.write(all_contents)
     logger.info("Files concatenated into: %s", combined_file_path)
-
 
 def unpack_files(combined_file_path, output_directory, replace_existing=False):
     """
@@ -115,7 +132,7 @@ def unpack_files(combined_file_path, output_directory, replace_existing=False):
         combined_file_path (Path): Path to the combined text file.
         output_directory (Path): Directory to output the unpacked files.
     """
-    with combined_file_path.open("r") as file:
+    with combined_file_path.open("r", encoding="utf-8") as file:
         combined_content = file.read()
 
     sections = combined_content.split("---\nFilename: ")[1:]
@@ -132,10 +149,17 @@ def unpack_files(combined_file_path, output_directory, replace_existing=False):
 
     for section in sections:
         filename, content = section.split("\n---\n", 1)
+        
+        # Handle relative paths in the filename
         output_path = output_directory / filename.strip()
+        
+        # Create parent directories if they don't exist
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
         if output_path.exists() and not replace_existing:
-            output_path = output_directory / f"{filename.strip()}_copy"
-        with output_path.open("w") as file:
+            output_path = output_path.with_suffix(output_path.suffix + "_copy")
+            
+        with output_path.open("w", encoding="utf-8") as file:
             file.write(content)
             logger.info("Unpacked file: %s", output_path)
     logger.info("Files unpacked into: %s", output_directory)
@@ -366,7 +390,8 @@ def unpack_all_archives(
         unpack_files(archive_file_path, directory_path)
         logger.info("Unpacked archive in: %s", directory_path)
 
-def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", ".r", ".ipynb", ".sh"]):
+
+def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", ".r", ".ipynb", ".sh"], file_prefixes=None, include_subdirectories=True):
     """
     Create a single text file containing all code from the specified directory,
     formatted in a way that's ideal for input to an LLM.
@@ -375,12 +400,9 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
         directory (Path): Directory to search for files.
         output_file_path (Path): Path to the output file.
         file_types (list): List of file extensions to include.
+        file_prefixes (list): List of filename prefixes to include (default is None, which includes all files).
+        include_subdirectories (bool): Whether to traverse subdirectories (default is True).
     """
-    from pathlib import Path
-    import json
-    import datetime
-    from .header import logger
-    
     if isinstance(directory, str):
         directory = Path(directory)
     if isinstance(output_file_path, str):
@@ -392,16 +414,26 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
     # Add a header with information about the archive
     all_contents += f"# LLM-FRIENDLY CODE ARCHIVE\n"
     all_contents += f"# Generated from: {directory}\n"
-    all_contents += f"# Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    
+    all_contents += f"# Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+
     # Track processed files for the table of contents
     file_list = []
     
     # First pass: collect all files to process
-    for path in directory.rglob("*"):
+    if include_subdirectories:
+        file_iterator = directory.rglob("*")
+    else:
+        file_iterator = directory.glob("*")
+
+    for path in file_iterator:
         if (path.is_file() and 
             not path.name.startswith((".", "#")) and 
             path.suffix in file_types):
+            
+            # Check if the file matches the prefix filter (if any)
+            if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
+                continue
+                
             rel_path = path.relative_to(directory)
             file_list.append((rel_path, path))
     
@@ -458,4 +490,108 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
         file.write(all_contents)
     
     logger.info(f"LLM-friendly archive created at: {output_file_path}")
+    return output_file_path
+
+
+    import json
+from pathlib import Path
+from .header import logger
+from datetime import datetime
+import os
+
+def archive_files(
+    directory,
+    output_file_path,
+    file_types=[".yaml", ".py", ".r"],
+    include_subdirectories=True,
+    extract_code_only=False,
+    file_prefixes=None,
+    llm_friendly=False,
+):
+    """
+    Archives files from a directory with various options.
+
+    Args:
+        directory (Path): Directory to search for files.
+        output_file_path (Path): Path to the output file.
+        file_types (list): List of file extensions to include.
+        include_subdirectories (bool): Whether to traverse subdirectories.
+        extract_code_only (bool): Extract only code cells from Jupyter notebooks.
+        file_prefixes (list): List of filename prefixes to include.
+        llm_friendly (bool): Format output for LLM consumption.
+    """
+
+    directory = Path(directory) if isinstance(directory, str) else directory
+    output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
+
+    logger.info(f"Archiving files from: {directory}")
+    all_contents = ""
+
+    if llm_friendly:
+        all_contents += "# LLM-FRIENDLY CODE ARCHIVE\n"
+        all_contents += f"# Generated from: {directory}\n"
+        all_contents += f"# Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        file_list = []  # For table of contents
+
+    # Determine file iteration method
+    file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
+
+    for path in file_iterator:
+        if path.is_file() and not path.name.startswith((".", "#")) and path.suffix in file_types:
+            if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
+                continue
+
+            rel_path = path.relative_to(directory)
+
+            content = None
+            if path.suffix == ".ipynb":
+                try:
+                    notebook_content = read_notebook(path)
+                    if notebook_content:
+                        if extract_code_only:
+                            content = ""
+                            for cell_idx, cell in enumerate(notebook_content.get("cells", []), 1):
+                                if cell["cell_type"] == "code" and cell.get("source"):
+                                    cell_content = "".join(cell.get("source", []))
+                                    if cell_content.strip():
+                                        content += f"# Cell {cell_idx}\n{cell_content}\n\n"
+                        else:
+                            content = json.dumps(remove_outputs_from_code_cells(notebook_content), indent=4)
+                except Exception as e:
+                    logger.error(f"Error processing notebook {path}: {e}")
+                    content = f"# Error processing notebook: {e}\n\n"
+            else:
+                try:
+                    with path.open("r", encoding="utf-8", errors="replace") as file:
+                        content = file.read()
+                except Exception as e:
+                    logger.error(f"Error reading file {path}: {e}")
+                    content = f"# Error reading file: {e}\n\n"
+
+            if content is not None:
+                if llm_friendly:
+                    file_list.append((rel_path, path))
+                else:
+                    all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+
+    if llm_friendly:
+        file_list.sort(key=lambda x: str(x[0]))
+        all_contents += "# TABLE OF CONTENTS\n"
+        all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
+        all_contents += "\n\n"
+
+        for idx, (rel_path, path) in enumerate(file_list, 1):
+            all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"
+            try:
+                with path.open("r", encoding="utf-8", errors="replace") as file:
+                    all_contents += file.read()
+            except Exception as e:
+                logger.error(f"Error reading file {path}: {e}")
+                all_contents += f"# Error reading file: {e}\n\n"
+            all_contents += "\n\n"
+
+    with output_file_path.open("w", encoding="utf-8", errors="replace") as file:
+        file.write(all_contents)
+
+    logger.info(f"Archive created at: {output_file_path}")
     return output_file_path
