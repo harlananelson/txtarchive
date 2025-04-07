@@ -17,8 +17,6 @@ def read_notebook(notebook_path):
     try:
         with notebook_path.open("r", encoding="utf-8", errors="replace") as file:
             notebook = json.load(file)
-        logger.info(f"read_notebook result type: {type(notebook)}")  # Check type
-        logger.info(f"read_notebook result: {notebook.keys()}")  # Check keys
         return notebook
     except json.JSONDecoderError as e:
         logger.error(f"Error reading {notebook_path}: {e}")
@@ -389,6 +387,12 @@ from .header import logger
 from datetime import datetime
 import os
 
+import json
+from pathlib import Path
+from .header import logger
+from datetime import datetime
+import os
+
 def archive_files(
     directory,
     output_file_path,
@@ -402,13 +406,27 @@ def archive_files(
     Archives files from a directory with various options.
 
     Args:
-        directory (Path): Directory to search for files.
-        output_file_path (Path): Path to the output file.
+        directory (Path or str): Directory to search for files.
+        output_file_path (Path or str): Path to the output file.
         file_types (list): List of file extensions to include.
         include_subdirectories (bool): Whether to traverse subdirectories.
         extract_code_only (bool): Extract only code cells from Jupyter notebooks.
+        include_markdown (bool): Include markdown cells when extracting from notebooks.
         file_prefixes (list): List of filename prefixes to include.
         llm_friendly (bool): Format output for LLM consumption.
+
+    Features:
+    - **File Type Filtering**: Archives files matching specified extensions.
+    - **Subdirectory Inclusion**: Optionally includes files from subdirectories.
+    - **Filename Prefix Filtering**: Includes files starting with specified prefixes.
+    - **Notebook Processing**:
+        - Extracts code cells from Jupyter notebooks when 'extract_code_only' is True.
+        - Optionally includes markdown cells when 'include_markdown' is True.
+        - Removes outputs from code cells to reduce clutter.
+    - **LLM-Friendly Output**:
+        - Formats output for language model consumption when 'llm_friendly' is True.
+        - Includes a table of contents and clear file separations.
+    - **Error Handling**: Logs errors and continues processing other files.
     """
 
     directory = Path(directory) if isinstance(directory, str) else directory
@@ -422,9 +440,11 @@ def archive_files(
         all_contents += f"# Generated from: {directory}\n"
         all_contents += f"# Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         file_list = []  # For table of contents
-
-    # Determine file iteration method
-    file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
+            # Determine file iteration method
+    if include_subdirectories:
+        file_iterator = directory.rglob("*")
+    else:
+        file_iterator = directory.glob("*")
 
     for path in file_iterator:
         if path.is_file() and not path.name.startswith((".", "#")) and path.suffix in file_types:
@@ -436,22 +456,16 @@ def archive_files(
             content = None
             if path.suffix == ".ipynb":
                 try:
-                    notebook_content = read_notebook(path)
+                    # Extract code and markdown cells
+                    content = ""
+                    notebook_content = read_notebook(path)  # Read notebook
                     if notebook_content:
-                        notebook_content = remove_outputs_from_code_cells(notebook_content)  # Remove outputs FIRST
-                        if extract_code_only:
-                            # Extract only code cells
-                            content = ""
-                            for cell_idx, cell in enumerate(notebook_content.get("cells", []), 1):
-                                if cell["cell_type"] == "code" and cell.get("source"):
-                                    cell_content = "".join(cell.get("source", []))
-                                    if cell_content.strip():
-                                        content += f"# Cell {cell_idx}\n{cell_content}\n\n"
-                        else:
-                            # Include full notebook content as JSON (without outputs)
-                            content = json.dumps(notebook_content, indent=4)
-                    else:
-                        content = ""  # If notebook_content is None, set content to empty string
+                        for cell_idx, cell in enumerate(notebook_content.get("cells", []), 1):
+                            if cell["cell_type"] in ["code", "markdown"] and cell.get("source"):
+                                cell_type = cell["cell_type"].capitalize()  # 'Code' or 'Markdown'
+                                cell_content = "".join(cell.get("source", []))
+                                if cell_content.strip():
+                                    content += f"# Cell {cell_idx} - {cell_type} Cell\n{cell_content}\n\n"
                 except Exception as e:
                     logger.error(f"Error processing notebook {path}: {e}")
                     content = f"# Error processing notebook: {e}\n\n"
@@ -465,25 +479,20 @@ def archive_files(
 
             if content is not None:
                 if llm_friendly:
-                    file_list.append((rel_path, path))
+                    file_list.append((rel_path, content))
                 else:
                     all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
 
-
+    # Handling LLM-friendly output
     if llm_friendly:
         file_list.sort(key=lambda x: str(x[0]))
         all_contents += "# TABLE OF CONTENTS\n"
         all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
         all_contents += "\n\n"
 
-        for idx, (rel_path, path) in enumerate(file_list, 1):
+        for idx, (rel_path, content) in enumerate(file_list, 1):
             all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"
-            try:
-                with path.open("r", encoding="utf-8", errors="replace") as file:
-                    all_contents += file.read()
-            except Exception as e:
-                logger.error(f"Error reading file {path}: {e}")
-                all_contents += f"# Error reading file: {e}\n\n"
+            all_contents += content
             all_contents += "\n\n"
 
     output_dir = output_file_path.parent

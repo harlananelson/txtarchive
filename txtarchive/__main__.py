@@ -27,8 +27,12 @@ python -m txtarchive archive "Projects/SickleCell" "Projects/SickleCell.txt" --f
 
 # Archive a directory for LLM use:
 python -m txtarchive archive "lhn" "lhnLLM.txt" --file_types .py --no-subdirectories --llm-friendly --extract-code-only
+
 python -m txtarchive archive "configuration" "configurationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes config-global config-RWD --llm-friendly --extract-code-only
+
 python -m txtarchive archive "Projects/SickleCell" "Projects/SickleCellADSLLM.txt" --file_types .ipynb --no-subdirectories --file_prefixes 011 015 016 017 050 060 065 066 067 070 --llm-friendly --extract-code-only
+python -m txtarchive archive "Projects/SickleCell" "Projects/SickleCellAnalysisLLM.txt" --file_types .ipynb --no-subdirectories --file_prefixes 270 280 --llm-friendly --extract-code-only
+
 """,
     )
     archive_parser.add_argument('directory', type=str, help='Directory containing files to archive')
