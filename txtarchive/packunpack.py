@@ -124,14 +124,22 @@ def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py",
         file.write(all_contents)
     logger.info("Files concatenated into: %s", combined_file_path)
 
-def unpack_files(combined_file_path, output_directory, replace_existing=False):
+# ... (other imports and functions unchanged) ...
+
+def unpack_files(output_directory, combined_file_path, replace_existing=False):
     """
     Unpack files from a combined text file into a specified directory.
 
     Args:
-        combined_file_path (Path): Path to the combined text file.
         output_directory (Path): Directory to output the unpacked files.
+        combined_file_path (Path): Path to the combined text file.
+        replace_existing (bool): Whether to replace existing files (default: False).
     """
+    if isinstance(combined_file_path, str):
+        combined_file_path = Path(combined_file_path)
+    if isinstance(output_directory, str):
+        output_directory = Path(output_directory)
+
     with combined_file_path.open("r", encoding="utf-8") as file:
         combined_content = file.read()
 
@@ -163,6 +171,9 @@ def unpack_files(combined_file_path, output_directory, replace_existing=False):
             file.write(content)
             logger.info("Unpacked file: %s", output_path)
     logger.info("Files unpacked into: %s", output_directory)
+
+
+
 
 
 def run_concat_no_subdirs(
@@ -243,23 +254,23 @@ def run_concat(
     concatenate_files(current_directory, combined_files, file_types=file_types)
 
 
-def run_unpack(combined_file_path, output_directory, replace_existing=False):
+def run_unpack(output_directory, combined_file_path, replace_existing=False):
     """
     Wrapper for the `unpack_files` function.
 
     Args:
-        combined_file_path (Path): Path to the combined text file.
         output_directory (Path): Directory to output the unpacked files.
+        combined_file_path (Path): Path to the combined text file.
+        replace_existing (bool): Whether to replace existing files (default: False).
     """
     if isinstance(combined_file_path, str):
         combined_file_path = Path(combined_file_path)
     if isinstance(output_directory, str):
         output_directory = Path(output_directory)
 
-    unpack_files(
-        combined_file_path, output_directory, replace_existing=replace_existing
-    )
+    unpack_files(output_directory, combined_file_path, replace_existing=replace_existing)
     logger.info("Files have been unpacked into: %s", output_directory)
+
 
 
 def archive_subdirectories(
@@ -493,7 +504,7 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
     return output_file_path
 
 
-    import json
+import json
 from pathlib import Path
 from .header import logger
 from datetime import datetime
@@ -527,11 +538,17 @@ def archive_files(
     logger.info(f"Archiving files from: {directory}")
     all_contents = ""
 
+    # Add creation date at the top
+    creation_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    all_contents += f"# Archive created on: {creation_date}\n\n"
+
     if llm_friendly:
         all_contents += "# LLM-FRIENDLY CODE ARCHIVE\n"
         all_contents += f"# Generated from: {directory}\n"
-        all_contents += f"# Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        all_contents += f"# Date: {creation_date}\n\n"  # Replace the existing date line
         file_list = []  # For table of contents
+    else:
+        all_contents += "# Standard Archive Format\n\n"  # Optional: distinguish from LLM-friendly
 
     # Determine file iteration method
     file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
