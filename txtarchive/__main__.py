@@ -1,26 +1,32 @@
 # txtarchive/__main__.py
 import argparse
 import logging
+from importlib.metadata import version  # Python 3.8+
 from txtarchive.packunpack import archive_files, run_unpack, archive_subdirectories  # Absolute import
 from .header import logger
 
+# Get the version dynamically from the installed package metadata
+__version__ = version("txtarchive")
 
     # home/hnelson3/work/Users/hnelson3/txtarchive
     # (/tmp/r_env) hnelson3@ip-10-42-66-149:~/work/
 
     #  python -m txtarchive archive "SickleCell" "SickleCell.txt" --file_types .ipynb --no-subdirectories --file_prefixes 011 015 016 017 050 060 065 066 067 070
     # python -m txtarchive archive "Projects/SickleCell" "Projects/SickleCell.txt" --file_types .ipynb --no-subdirectories --file_prefixes 011 015 016 017 050 060 065 066 067 070
-    # python -m txtarchive archive "/home/hnelson3/work/Users/hnelson3/Projects/SickleCell" "/home/hnelson3/work/Users/hnelson3/Projects/SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 000 011 015 016 017 050 060 065 066 067 070 --llm-friendly --extract-code-only
+    # python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 000 011 015 016 017 050 060 065 066 067 070 --llm-friendly --extract-code-only
     # python -m txtarchive archive "lhn" "lhnLLM.txt" --file_types .ipynb --no-subdirectories  --llm-friendly --extract-code-only
     # python -m txtarchive archive "configuration" "configurationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes config-global config-RWD  --llm-friendly --extract-code-only
     # python -m txtarchive archive "lhn" "lhn.txt"  --no-subdirectories
     # python -m txtarchive unpack "lhn" "lhn.txt"  # Correct usage
+    # python -m txtarchive --version  # Display version
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
     parser = argparse.ArgumentParser(description="textarchive command line utility.")
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}', help='Show the version and exit')
+
+    subparsers = parser.add_subparsers(dest='command', help='Available commands', required=False)  # Make command optional
 
     # --- archive Command ---
     archive_parser = subparsers.add_parser('archive', help='Archive files with various options')
@@ -48,6 +54,14 @@ def main():
 
     args = parser.parse_args()
 
+    # Handle version explicitly if no command is provided
+    if not args.command:
+        if hasattr(args, 'version'):  # Check if --version was passed
+            parser.parse_args(['--version'])  # Trigger version action manually
+        else:
+            parser.print_help()
+        return
+
     if args.command == 'archive':
         archive_files(
             directory=args.directory,
@@ -60,11 +74,9 @@ def main():
         )
     elif args.command == 'unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
-        run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing)  # Corrected order
+        run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing)
     elif args.command == 'archive_subdirectories':
         archive_subdirectories(args.parent_directory, args.directories, args.combined_archive_dir, args.combined_archive_name, args.file_types)
-    else:
-        parser.print_help()
 
 if __name__ == "__main__":
     main()
