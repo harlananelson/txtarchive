@@ -24,6 +24,9 @@ except ImportError:
     # python -m txtarchive archive "Projects/SickleCell" "Projects/SickleCell.txt" --file_types .ipynb --no-subdirectories --file_prefixes 011 015 016 017 050 060 065 066 067 070
     # python -m txtarchive archive "/home/hnelson3/work/Users/hnelson3/Projects/SickleCell" "/home/hnelson3/work/Users/hnelson3/Projects/SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 000 011 015 016 017 050 060 065 066 067 070 --llm-friendly --extract-code-only
     # python -m txtarchive archive "lhn" "lhnLLM.txt" --file_types .py --no-subdirectories  --llm-friendly --extract-code-only
+    
+    # python -m txtarchive archive "lhn" "lhnLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output --split-output-dir split_lhnLLM
+    
     # python -m txtarchive archive "configuration" "configurationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes config-global config-RWD  --llm-friendly --extract-code-only
     # python -m txtarchive archive "lhn" "lhn.txt"  --no-subdirectories
     # python -m txtarchive unpack "lhn" "lhn.txt"  # Correct usage
@@ -62,6 +65,10 @@ def main():
     archive_subs_parser.add_argument('--combined_archive_name', type=str, help='Name of the combined archive file (default: all_combined_archives.txt)', default='all_combined_archives.txt')
     archive_subs_parser.add_argument('--file_types', nargs='+', default=['.yaml', '.py', '.r'], help='List of file extensions to include in the archive')
 
+    archive_parser.add_argument('--split-output', action='store_true', help='Split the output file into chunks for LLM input')
+    archive_parser.add_argument('--split-max-chars', type=int, default=100000, help='Maximum characters per split file')
+    archive_parser.add_argument('--split-output-dir', type=str, help='Directory for split files (default: split_<output_file_stem>)')
+
     args = parser.parse_args()
 
     if args.command == 'archive':
@@ -73,6 +80,9 @@ def main():
             extract_code_only=args.extract_code_only,
             llm_friendly=args.llm_friendly,
             file_prefixes=args.file_prefixes,
+            split_output=args.split_output,
+            max_chars=args.split_max_chars,
+            split_output_dir=args.split_output_dir,
         )
     elif args.command == 'unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")

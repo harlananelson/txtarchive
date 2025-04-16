@@ -511,6 +511,9 @@ import os
 
 # txtarchive/packunpack.py (updated snippet)
 # txtarchive/packunpack.py (updated snippet)
+# txtarchive/packunpack.py
+# txtarchive/packunpack.py
+
 def archive_files(
     directory,
     output_file_path,
@@ -519,6 +522,9 @@ def archive_files(
     extract_code_only=False,
     file_prefixes=None,
     llm_friendly=False,
+    split_output=False,  # New parameter
+    max_chars=100000,   # Splitting threshold
+    split_output_dir=None  # Directory for split files
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
@@ -570,7 +576,7 @@ def archive_files(
 
             if content is not None:
                 if llm_friendly:
-                    file_list.append((rel_path, content))  # Store content instead of path
+                    file_list.append((rel_path, content))
                 else:
                     all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
 
@@ -582,11 +588,309 @@ def archive_files(
 
         for idx, (rel_path, content) in enumerate(file_list, 1):
             all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"
-            all_contents += content  # Use pre-processed content
+            all_contents += content
             all_contents += "\n\n"
 
     with output_file_path.open("w", encoding="utf-8", errors="replace") as file:
         file.write(all_contents)
 
     logger.info(f"Archive created at: {output_file_path}")
+
+    if split_output:
+        from .split_files import split_file
+        split_dir = split_output_dir or output_file_path.parent / f"split_{output_file_path.stem}"
+        split_file(output_file_path, max_chars=max_chars, output_dir=split_dir)
+        logger.info(f"Split files created in: {split_dir}")
+
     return output_file_path
+
+    # txtarchive/packunpack.py
+import json
+from pathlib import Path
+from .header import logger
+from datetime import datetime
+
+# ... (existing imports and functions remain unchanged)
+
+# txtarchive/packunpack.py
+import json
+from pathlib import Path
+from .header import logger
+from datetime import datetime
+
+# ... (other functions unchanged)
+
+def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
+    """
+    Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files.
+
+    Args:
+        archive_file_path (Path): Path to the LLM-friendly archive file or directory of split files.
+        output_directory (Path): Directory to save the reconstructed .ipynb files.
+        replace_existing (bool): Whether to overwrite existing files (default: False).
+    """
+    archive_file_path = Path(archive_file_path)
+    output_directory = Path(output_directory)
+    
+    logger.info(f"Extracting notebooks to {output_directory}")
+    
+    # Handle single file or directory of split files
+    content = ""
+    if archive_file_path.is_dir():
+        logger.info(f"Processing split files in directory: {archive_file_path}")
+        # Sort files to maintain order (e.g., part1, part2)
+        split_files = sorted(archive_file_path.glob("*.txt"), key=lambda x: x.name)
+        if not split_files:
+            logger.error(f"No split files found in {archive_file_path}")
+            return
+        for split_file in split_files:
+            logger.info(f"Reading split file: {split_file}")
+            try:
+                with split_file.open("r", encoding="utf-8") as file:
+                    split_content = file.read()
+                    # Remove <DOCUMENT> and # Part N headers
+                    lines = split_content.splitlines()
+                    cleaned_lines = [
+                        line for line in lines
+                        if line.strip() not in ["<DOCUMENT>", "</DOCUMENT>"]
+                        and not line.startswith("# Part ")
+                    ]
+                    content += "\n".join(cleaned_lines) + "\n"
+            except Exception as e:
+                logger.error(f"Error reading split file {split_file}: {e}")
+                continue
+    else:
+        logger.info(f"Processing single archive: {archive_file_path}")
+        try:
+            with archive_file_path.open("r", encoding="utf-8") as file:
+                content = file.read()
+        except Exception as e:
+            logger.error(f"Error reading archive {archive_file_path}: {e}")
+            return
+    
+    # Validate archive
+    if "TABLE OF CONTENTS" not in content:
+        logger.error("Archive missing TABLE OF CONTENTS; may be incomplete")
+        return
+    
+    # Create output directory
+    output_directory.mkdir(parents=True, exist_ok=True)
+    
+    # Split into sections (skip header until TABLE OF CONTENTS)
+    sections = content.split("################################################################################\n# FILE ")
+    if len(sections) < 2:
+        logger.warning(f"No notebook sections found in archive")
+        return
+    
+    # Process each file section
+    for section in sections[1:]:  # Skip header
+        # Extract filename and content
+        lines = section.split("\n", 2)
+        if len(lines) < 3:
+            logger.warning(f"Invalid section format: {section[:50]}...")
+            continue
+            
+        # Parse file number and filename
+        file_info = lines[0].strip()  # e.g., "1: notebook1.ipynb"
+        try:
+            file_num, filename = file_info.split(": ", 1)
+            filename = filename.strip()
+            if not filename.endswith(".ipynb"):
+                logger.warning(f"Skipping non-notebook file: {filename}")
+                continue
+        except ValueError:
+            logger.warning(f"Invalid file info format: {file_info}")
+            continue
+            
+        content = lines[2]  # Content after "########..." and file header
+        
+        # Prepare output path
+        output_path = output_directory / filename
+        if output_path.exists() and not replace_existing:
+            output_path = output_path.with_stem(f"{output_path.stem}_copy")
+            logger.info(f"File exists, using {output_path.name}")
+            
+        # Check if content is JSON (non-extract-code-only) or code cells
+        notebook = {
+            "cells": [],
+            "metadata": {
+                "kernelspec": {
+                    "display_name": "Python 3",
+                    "language": "python",
+                    "name": "python3"
+                },
+                "language_info": {
+                    "name": "python"
+                }
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5
+        }
+        
+        if content.strip().startswith("{"):
+            # JSON content (non-extract-code-only)
+            try:
+                notebook = json.loads(content)
+                logger.info(f"Restored JSON notebook: {filename}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in {filename}: {e}")
+                continue
+        else:
+            # Code cells (extract-code-only)
+            cells = []
+            current_cell = []
+            cell_number = None
+            
+            for line in content.splitlines():
+                if line.startswith("# Cell "):
+                    if current_cell:
+                        cells.append({
+                            "cell_type": "code",
+                            "source": current_cell,
+                            "metadata": {},
+                            "execution_count": None,
+                            "outputs": []
+                        })
+                        current_cell = []
+                    try:
+                        cell_number = int(line.split("# Cell ")[1])
+                    except (IndexError, ValueError):
+                        logger.warning(f"Invalid cell marker in {filename}: {line}")
+                    continue
+                current_cell.append(line + "\n")
+                
+            # Add final cell
+            if current_cell:
+                cells.append({
+                    "cell_type": "code",
+                    "source": current_cell,
+                    "metadata": {},
+                    "execution_count": None,
+                    "outputs": []
+                })
+                
+            notebook["cells"] = cells
+            logger.info(f"Reconstructed {len(cells)} code cells for {filename}")
+        
+        # Write notebook
+        try:
+            with output_path.open("w", encoding="utf-8") as file:
+                json.dump(notebook, file, indent=2)
+            logger.info(f"Created notebook: {output_path}")
+        except Exception as e:
+            logger.error(f"Error writing {output_path}: {e}")
+
+def run_extract_notebooks(archive_file_path, output_directory, replace_existing=False):
+    """
+    Wrapper for extract_notebooks_to_ipynb.
+    """
+    extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing)
+    logger.info(f"Notebooks extracted to: {output_directory}")
+
+def validate_archive(archive_file_path):
+    with Path(archive_file_path).open("r", encoding="utf-8") as file:
+        content = file.read()
+    if "TABLE OF CONTENTS" not in content:
+        logger.error("Archive missing TABLE OF CONTENTS")
+        return False
+    if not content.split("################################################################################\n# FILE ")[1:]:
+        logger.error("No notebook sections found")
+        return False
+    return True
+
+# packunpack.py
+from pathlib import Path
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+def generate_archive(study_plan_path, lhn_archive_path, output_archive_path, llm_model="mock"):
+    """Generate a txtarchive archive using an LLM."""
+    with Path(study_plan_path).open("r", encoding="utf-8") as f:
+        study_plan = f.read()
+    
+    lhn_content = ""
+    lhn_path = Path(lhn_archive_path)
+    if lhn_path.is_dir():
+        for split_file in sorted(lhn_path.glob("*.txt")):
+            with split_file.open("r", encoding="utf-8") as f:
+                split_content = f.read()
+                lines = [
+                    line for line in split_content.splitlines()
+                    if line.strip() not in ["<DOCUMENT>", "</DOCUMENT>"]
+                    and not line.startswith("# Part ")
+                ]
+                lhn_content += "\n".join(lines) + "\n"
+    else:
+        with lhn_path.open("r", encoding="utf-8") as f:
+                lhn_content = f.read()
+    
+    prompt = (
+        "You are a code generation assistant. The lhn module is a Python library for "
+        "healthcare analytics, with functions for data loading, analysis, and visualization.\n\n"
+        f"**Study Plan**: {study_plan}\n\n"
+        f"**lhn Module Archive**:\n{lhn_content}\n\n"
+        "Generate a txtarchive-compatible archive with Jupyter notebooks implementing the "
+        "study plan using lhn functions. Use this format:\n\n"
+        "# LLM-FRIENDLY CODE ARCHIVE\n"
+        "# Generated from: study\n"
+        f"# Date: {datetime.now().strftime('%Y-%m-%d')}\n"
+        "# TABLE OF CONTENTS\n"
+        "1. data_cleaning.ipynb\n"
+        "2. analysis.ipynb\n"
+        "\n"
+        "################################################################################\n"
+        "# FILE 1: data_cleaning.ipynb\n"
+        "################################################################################\n"
+        "# Cell 1\n"
+        "<code>\n"
+        "# Cell 2\n"
+        "<code>\n"
+        "\n"
+        "################################################################################\n"
+        "# FILE 2: analysis.ipynb\n"
+        "################################################################################\n"
+        "# Cell 1\n"
+        "<code>\n"
+        "\n"
+        "Output only the archive text."
+    )
+    
+    # Mock LLM call (replace with real API, e.g., OpenAI)
+    archive_content = mock_llm_call(prompt) if llm_model == "mock" else call_llm(prompt, llm_model)
+    
+    with Path(output_archive_path).open("w", encoding="utf-8") as f:
+        f.write(archive_content)
+    logger.info(f"Generated archive: {output_archive_path}")
+
+def mock_llm_call(prompt):
+    """Mock LLM response for testing."""
+    return (
+        "# LLM-FRIENDLY CODE ARCHIVE\n"
+        "# Generated from: study\n"
+        "# Date: 2025-04-15\n"
+        "# TABLE OF CONTENTS\n"
+        "1. data_cleaning.ipynb\n"
+        "2. analysis.ipynb\n"
+        "\n"
+        "################################################################################\n"
+        "# FILE 1: data_cleaning.ipynb\n"
+        "################################################################################\n"
+        "# Cell 1\n"
+        "import lhn.preprocessing\n"
+        'data = lhn.preprocessing.load_data("data.csv")\n'
+        "# Cell 2\n"
+        "clean_data = lhn.preprocessing.clean_data(data)\n"
+        "\n"
+        "################################################################################\n"
+        "# FILE 2: analysis.ipynb\n"
+        "################################################################################\n"
+        "# Cell 1\n"
+        "import lhn.analytics\n"
+        "model = lhn.analytics.run_regression(clean_data)\n"
+    )
+
+def call_llm(prompt, llm_model):
+    """Placeholder for real LLM API call."""
+    raise NotImplementedError("Real LLM integration not implemented.")

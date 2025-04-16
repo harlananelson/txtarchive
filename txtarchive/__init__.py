@@ -15,6 +15,9 @@ from .packunpack import (
     run_concat_no_subdirs,
     archive_files,
     run_unpack,
+    extract_notebooks_to_ipynb,
+    run_extract_notebooks,
+    generate_archive,
 )
 
 __all__ = [
@@ -26,4 +29,7 @@ __all__ = [
     'run_concat_no_subdirs',
     'archive_files',
     'run_unpack',
+    'extract_notebooks_to_ipynb',
+    'run_extract_notebooks',
+    'generate_archive',
 ]
