@@ -12,43 +12,88 @@ def main():
 
     epilog = """
 Examples:
-  Archive Jupyter notebooks to an LLM-friendly text file:
-    python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output
 
-    python -m txtarchive archive "Martini_Gilbert_EBP_Well-being" "Martini_Gilbert_EBP_Well-being.txt" --file_types qmd r .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output
+# Sickle Cell
+prompt: I want to create an archive of the ADS creation python scripts (specific files) in my SickleCell project for use with an LLM model.
+response: python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output --file_prefixes 011 015 016 017 050 060 065 066 067 070
+  python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 011 015 016 017 050 060 065 066 067 070 --llm-friendly --extract-code-only
+  python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 011 015 --llm-friendly --extract-code-only
 
+prompt: I want to create an archive of the R code scripts( specific files) in my SickleCell project for use with an LLM
+    python -m txtarchive archive "SickleCell" "SickleCell_AnalysisLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output --file_prefixes 1030
+
+# Martini_Gilbert_EBP_Well_being
+prompt: I want to create an archive of my Martini_Gilbert_EBP_Well-being project for use with an LLM
+response: 
+    python -m txtarchive archive "Martini_Gilbert_EBP_Well-being" "Martini_Gilbert_EBP_Well-being.txt" --file_types qmd R r  --no-subdirectories --llm-friendly --extract-code-only --split-output
+
+# lhn
+
+
+```bash
+#!/bin/bash
+# Command to archive the txtarchive Python package into an LLM-friendly text archive
+# inside the lhn directory. Includes top-level files (e.g., .gitignore, README.md,
+# usage.py, setup.py) and the txtarchive/txtarchive subdirectory (e.g., __init__.py, header.py).
+
+python -m txtarchive archive "lhn" "lhn/lhn-llm-friendly.txt" \
+  --file_types .py .md .yaml \
+  --file_prefixes .gitignore \
+  --llm-friendly \
+  --split-output \
+  --split-output-dir "lhn/split_lhn"
+
+# To unpack the archive later:
+# python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"
+```
+
+prompt: I want to create an archive of my lhn package for use with and LLM, in only one file
+response:
     python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" --file_types .py --no-subdirectories --llm-friendly --split-output
+
+prompt:I want to create an archive of my lhn package, for use with an LLM, but split into multiple files
+response:
     python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" --file_types .py --no-subdirectories --llm-friendly --split-output --split-output-dir "split_lhn"
 
-
-  Archive Python files without subdirectories:
-    python -m txtarchive archive "lhn" "lhn.txt" --file_types .py --no-subdirectories
-    python -m txtarchive unpack "lhn.txt" lhn
-
+# txtarchive
+prompt: I want to create an archive of my lhn package that I can later unpack 
+response
     python -m txtarchive archive "txtarchive" "txtarchive.txt" --file_types .py --no-subdirectories
+prompt: I want to unpack an archive of my lhn package I made previously
+response:
     python -m txtarchive unpack "txtarchive.txt" txtarchive 
 
-    
-
-  Unpack a text archive to a directory:
-    python -m txtarchive unpack "lhn.txt" "unpacked_lhn"
-
-  Extract Jupyter notebooks from an LLM-friendly archive:
-    python -m txtarchive extract-notebooks "SickleCell_ADSCreationLLM.txt" "extracted_notebooks"
-
-  Extract notebooks from split archive files:
+prompt: I want to extract notebooks form a text archive that was created for use with LLMs
+respons:
     python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks"
 
-
-
-  Archive subdirectories with specific file types:
+prompt: I want to create an archive of a directory and also include the subdirectories
+response:
     python -m txtarchive archive_subdirectories "parent_dir" --file_types .yaml .py
 
-  Extract an LLM generated set of jupyter notebooks
+prompt: I had an LLM generate a set of archived notebooks that I now want to extract
     python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks"
 
-# python -m txtarchive archive "/SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 011 015 016 017 050 060 065 066 067 070 --llm-friendly --extract-code-only
-python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 011 015 --llm-friendly --extract-code-only
+```bash
+#!/bin/bash
+# Command to archive the txtarchive Python package into an LLM-friendly text archive
+# inside the txtarchive directory. Includes top-level files (e.g., .gitignore, README.md,
+# usage.py, setup.py) and the txtarchive/txtarchive subdirectory (e.g., __init__.py, header.py).
+
+python -m txtarchive archive "txtarchive" "txtarchive/txtarchive-llm-friendly.txt" \
+  --file_types .py .md .yaml \
+  --file_prefixes .gitignore \
+  --llm-friendly \
+  --split-output \
+  --split-output-dir "txtarchive/split_txtarchive"
+
+# To unpack the archive later:
+# python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"
+```
+
+prompt: I want to us LLM create create a project (directory) of code that will create an analsysis
+reponse:
+(reponse needs work to improve and make functional)
   Command to streamline LLM interaction
   This could call an LLM API (e.g., via openai or huggingface), pass the study plan and lhn archive, and save the generated archive.
     python -m txtarchive generate <study_plan> <lhn_archive> <output_archive>
@@ -268,6 +313,8 @@ python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file
 
 if __name__ == "__main__":
     main()
+
+# the end
 
 
 
