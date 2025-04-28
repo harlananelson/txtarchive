@@ -27,21 +27,14 @@ prompt: I want to create an archive of my Martini_Gilbert_EBP_Well-being project
 response: 
     python -m txtarchive archive "Martini_Gilbert_EBP_Well-being" "Martini_Gilbert_EBP_Well-being.txt" --file_types qmd R r  --no-subdirectories --llm-friendly --extract-code-only --split-output
 
-# lhn
-
-
-```bash
-#!/bin/bash
-# Command to archive the txtarchive Python package into an LLM-friendly text archive
-# inside the lhn directory. Includes top-level files (e.g., .gitignore, README.md,
-# usage.py, setup.py) and the txtarchive/txtarchive subdirectory (e.g., __init__.py, header.py).
-
 python -m txtarchive archive "lhn" "lhn/lhn-llm-friendly.txt" \
   --file_types .py .md .yaml \
-  --file_prefixes lhn \
   --llm-friendly \
   --split-output \
-  --split-output-dir "lhn/split_lhn"
+  --split-output-dir "lhn/split_lhn" \
+  --exclude-dirs build .git old \
+  --root-files setup.py environment_archive_env.yaml environment_spark.yaml \
+  --include-subdirs lhn
 
 # To unpack the archive later:
 # python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"

@@ -502,23 +502,6 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
     logger.info(f"LLM-friendly archive created at: {output_file_path}")
     return output_file_path
 
-
-import json
-from pathlib import Path
-from .header import logger
-from datetime import datetime
-import os
-
-# txtarchive/packunpack.py (updated snippet)
-# txtarchive/packunpack.py (updated snippet)
-# txtarchive/packunpack.py
-# txtarchive/packunpack.py
-
-import json
-from pathlib import Path
-from .header import logger
-from datetime import datetime
-
 import json
 from pathlib import Path
 from .header import logger
@@ -546,6 +529,7 @@ def archive_files(
     exclude_dirs = set(exclude_dirs or [])  # Convert to set for faster lookup
     root_files = set(root_files or [])  # Specific root files to include
     include_subdirs = set(include_subdirs or [])  # Specific subdirs to include
+    processed_files = set()  # Track processed files to prevent duplicates
 
     logger.info(f"Archiving files from: {directory}")
     all_contents = ""
@@ -560,26 +544,42 @@ def archive_files(
     else:
         all_contents += "# Standard Archive Format\n\n"
 
+    # Verify input directory exists
+    if not directory.is_dir():
+        logger.error(f"Input directory does not exist: {directory}")
+        raise FileNotFoundError(f"Input directory does not exist: {directory}")
+
+    # Create output directory if it doesn't exist
+    output_file_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Ensured output directory exists: {output_file_path.parent}")
+
     # Process root files explicitly
     for file_name in root_files:
         path = directory / file_name
-        if path.is_file() and not path.name.startswith((".", "#")):
-            logger.info(f"Processing root file: {path}")
-            rel_path = path.relative_to(directory)
-            try:
-                with path.open("r", encoding="utf-8", errors="replace") as file:
-                    content = file.read()
-                if llm_friendly:
-                    file_list.append((rel_path, content))
-                else:
-                    all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
-            except Exception as e:
-                logger.error(f"Error reading root file {path}: {e}")
-                content = f"# Error reading file: {e}\n\n"
-                if llm_friendly:
-                    file_list.append((rel_path, content))
-                else:
-                    all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+        if not path.is_file():
+            logger.warning(f"Root file not found: {path}")
+            continue
+        if path.name.startswith((".", "#")):
+            logger.info(f"Skipping hidden root file: {path}")
+            continue
+        logger.info(f"Processing root file: {path}")
+        rel_path = path.relative_to(directory)
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as file:
+                content = file.read()
+            if llm_friendly:
+                file_list.append((rel_path, content))
+                processed_files.add(str(rel_path))  # Track as processed
+            else:
+                all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+        except Exception as e:
+            logger.error(f"Error reading root file {path}: {e}")
+            content = f"# Error reading file: {e}\n\n"
+            if llm_friendly:
+                file_list.append((rel_path, content))
+                processed_files.add(str(rel_path))
+            else:
+                all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
 
     # Process files in directory and specified subdirectories
     file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
@@ -602,11 +602,16 @@ def archive_files(
             if is_root_file and path.name in root_files:
                 logger.info(f"Skipping already processed root file: {path}")
                 continue
+            # Skip files already processed
+            if str(rel_path) in processed_files:
+                logger.info(f"Skipping already processed file: {path}")
+                continue
             # Apply file_types filter only to root files (not root_files or subdirs)
             if is_root_file and path.suffix not in file_types:
                 continue
             if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
                 continue
+            logger.info(f"Processing file: {path}")
             content = None
             if path.suffix == ".ipynb":
                 try:
@@ -635,12 +640,7 @@ def archive_files(
             if content is not None:
                 if llm_friendly:
                     file_list.append((rel_path, content))
-                else:
-                    all_contents += f"---\nFilename: {rel_path}\n---    content = f"# Error reading file: {e}\n\n"
-
-            if content is not None:
-                if llm_friendly:
-                    file_list.append((rel_path, content))
+                    processed_files.add(str(rel_path))  # Track as processed
                 else:
                     all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
 
@@ -663,12 +663,13 @@ def archive_files(
     if split_output:
         from .split_files import split_file
         split_dir = split_output_dir or output_file_path.parent / f"split_{output_file_path.stem}"
+        split_dir.mkdir(parents=True, exist_ok=True)  # Ensure split directory exists
+        logger.info(f"Ensured split output directory exists: {split_dir}")
         split_file(output_file_path, max_chars=max_chars, output_dir=split_dir)
         logger.info(f"Split files created in: {split_dir}")
 
     return output_file_path
 
-# ... (other functions unchanged)
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
     """
     Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files.
