@@ -519,6 +519,11 @@ from pathlib import Path
 from .header import logger
 from datetime import datetime
 
+import json
+from pathlib import Path
+from .header import logger
+from datetime import datetime
+
 # ... (other imports and functions unchanged)
 
 def archive_files(
@@ -593,8 +598,12 @@ def archive_files(
             logger.info(f"Skipping file not in root or included subdir: {path}")
             continue
         if path.is_file() and not path.name.startswith((".", "#")):
+            # Skip root files already processed
+            if is_root_file and path.name in root_files:
+                logger.info(f"Skipping already processed root file: {path}")
+                continue
             # Apply file_types filter only to root files (not root_files or subdirs)
-            if is_root_file and path.name not in root_files and path.suffix not in file_types:
+            if is_root_file and path.suffix not in file_types:
                 continue
             if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
                 continue
@@ -627,6 +636,12 @@ def archive_files(
                 if llm_friendly:
                     file_list.append((rel_path, content))
                 else:
+                    all_contents += f"---\nFilename: {rel_path}\n---    content = f"# Error reading file: {e}\n\n"
+
+            if content is not None:
+                if llm_friendly:
+                    file_list.append((rel_path, content))
+                else:
                     all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
 
     if llm_friendly:
@@ -653,6 +668,7 @@ def archive_files(
 
     return output_file_path
 
+# ... (other functions unchanged)
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
     """
     Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files.
