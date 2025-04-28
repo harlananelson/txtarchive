@@ -514,6 +514,13 @@ import os
 # txtarchive/packunpack.py
 # txtarchive/packunpack.py
 
+import json
+from pathlib import Path
+from .header import logger
+from datetime import datetime
+
+# ... (other imports and functions unchanged)
+
 def archive_files(
     directory,
     output_file_path,
@@ -525,11 +532,15 @@ def archive_files(
     split_output=False,
     max_chars=100000,
     split_output_dir=None,
-    exclude_dirs=None,  # New parameter
+    exclude_dirs=None,
+    root_files=None,
+    include_subdirs=None,
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
     exclude_dirs = set(exclude_dirs or [])  # Convert to set for faster lookup
+    root_files = set(root_files or [])  # Specific root files to include
+    include_subdirs = set(include_subdirs or [])  # Specific subdirs to include
 
     logger.info(f"Archiving files from: {directory}")
     all_contents = ""
@@ -544,17 +555,49 @@ def archive_files(
     else:
         all_contents += "# Standard Archive Format\n\n"
 
+    # Process root files explicitly
+    for file_name in root_files:
+        path = directory / file_name
+        if path.is_file() and not path.name.startswith((".", "#")):
+            logger.info(f"Processing root file: {path}")
+            rel_path = path.relative_to(directory)
+            try:
+                with path.open("r", encoding="utf-8", errors="replace") as file:
+                    content = file.read()
+                if llm_friendly:
+                    file_list.append((rel_path, content))
+                else:
+                    all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+            except Exception as e:
+                logger.error(f"Error reading root file {path}: {e}")
+                content = f"# Error reading file: {e}\n\n"
+                if llm_friendly:
+                    file_list.append((rel_path, content))
+                else:
+                    all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+
+    # Process files in directory and specified subdirectories
     file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
 
     for path in file_iterator:
-        # Skip files in excluded directories
+        # Skip files in excluded directories first
         if include_subdirectories and any(parent.name in exclude_dirs for parent in path.parents):
             logger.info(f"Skipping file in excluded directory: {path}")
             continue
-        if path.is_file() and not path.name.startswith((".", "#")) and path.suffix in file_types:
+        # Only process files in root or specified subdirectories
+        rel_path = path.relative_to(directory)
+        parent_dir = rel_path.parent.name if rel_path.parent != Path(".") else ""
+        is_root_file = rel_path.parent == Path(".")
+        is_included_subdir = include_subdirs and parent_dir in include_subdirs
+        if not (is_root_file or (include_subdirectories and is_included_subdir)):
+            logger.info(f"Skipping file not in root or included subdir: {path}")
+            continue
+        if path.is_file() and not path.name.startswith((".", "#")):
+            # Apply file_types filter only to root files (not root_files or subdirs)
+            if is_root_file and path.name not in root_files and path.suffix not in file_types:
+                continue
             if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
                 continue
-            rel_path = path.relative_to(directory)
             content = None
             if path.suffix == ".ipynb":
                 try:

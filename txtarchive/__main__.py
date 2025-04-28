@@ -174,7 +174,17 @@ reponse:
     archive_parser.add_argument(
         '--exclude-dirs',
         nargs='+',
-        help='Subdirectories to exclude (e.g., .build .git)'
+        help='Subdirectories to exclude (e.g., build .git old)'
+    )
+    archive_parser.add_argument(
+        '--root-files',
+        nargs='+',
+        help='Specific root files to include regardless of file_types (e.g., requirements.txt setup.py)'
+    )
+    archive_parser.add_argument(
+        '--include-subdirs',
+        nargs='+',
+        help='Specific subdirectories to include (e.g., lhn)'
     )
 
     # --- unpack Command ---
@@ -303,7 +313,9 @@ reponse:
             split_output=args.split_output,
             max_chars=args.split_max_chars,
             split_output_dir=args.split_output_dir,
-            exclude_dirs=args.exclude_dirs,  # Pass the new argument
+            exclude_dirs=args.exclude_dirs,
+            root_files=args.root_files,
+            include_subdirs=args.include_subdirs,
         )
     elif args.command == 'unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
