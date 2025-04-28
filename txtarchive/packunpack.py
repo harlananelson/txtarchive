@@ -522,12 +522,14 @@ def archive_files(
     extract_code_only=False,
     file_prefixes=None,
     llm_friendly=False,
-    split_output=False,  # New parameter
-    max_chars=100000,   # Splitting threshold
-    split_output_dir=None  # Directory for split files
+    split_output=False,
+    max_chars=100000,
+    split_output_dir=None,
+    exclude_dirs=None,  # New parameter
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
+    exclude_dirs = set(exclude_dirs or [])  # Convert to set for faster lookup
 
     logger.info(f"Archiving files from: {directory}")
     all_contents = ""
@@ -545,6 +547,10 @@ def archive_files(
     file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
 
     for path in file_iterator:
+        # Skip files in excluded directories
+        if include_subdirectories and any(parent.name in exclude_dirs for parent in path.parents):
+            logger.info(f"Skipping file in excluded directory: {path}")
+            continue
         if path.is_file() and not path.name.startswith((".", "#")) and path.suffix in file_types:
             if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
                 continue
@@ -591,7 +597,7 @@ def archive_files(
             all_contents += content
             all_contents += "\n\n"
 
-    with output_file_path.open("w", encoding="utf-8", errors="replace") as file:
+    with output_file_path.open("w", encoding="utf-8") as file:
         file.write(all_contents)
 
     logger.info(f"Archive created at: {output_file_path}")
@@ -603,22 +609,6 @@ def archive_files(
         logger.info(f"Split files created in: {split_dir}")
 
     return output_file_path
-
-    # txtarchive/packunpack.py
-import json
-from pathlib import Path
-from .header import logger
-from datetime import datetime
-
-# ... (existing imports and functions remain unchanged)
-
-# txtarchive/packunpack.py
-import json
-from pathlib import Path
-from .header import logger
-from datetime import datetime
-
-# ... (other functions unchanged)
 
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
     """

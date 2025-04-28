@@ -38,7 +38,7 @@ response:
 
 python -m txtarchive archive "lhn" "lhn/lhn-llm-friendly.txt" \
   --file_types .py .md .yaml \
-  --file_prefixes .gitignore \
+  --file_prefixes lhn \
   --llm-friendly \
   --split-output \
   --split-output-dir "lhn/split_lhn"
@@ -171,6 +171,11 @@ reponse:
         type=str,
         help='Directory for split files (default: split_<output_file_stem>)'
     )
+    archive_parser.add_argument(
+        '--exclude-dirs',
+        nargs='+',
+        help='Subdirectories to exclude (e.g., .build .git)'
+    )
 
     # --- unpack Command ---
     unpack_parser = subparsers.add_parser(
@@ -298,6 +303,7 @@ reponse:
             split_output=args.split_output,
             max_chars=args.split_max_chars,
             split_output_dir=args.split_output_dir,
+            exclude_dirs=args.exclude_dirs,  # Pass the new argument
         )
     elif args.command == 'unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
