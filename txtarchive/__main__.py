@@ -17,7 +17,7 @@ Examples:
 prompt: I want to create an archive of the ADS creation python scripts (specific files) in my SickleCell project for use with an LLM model.
 response: python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output --file_prefixes 011 015 016 017 050 060 065 066 067 070
   python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 011 015 016 017 050 060 065 066 067 070 --llm-friendly --extract-code-only
-  python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 011 015 --llm-friendly --extract-code-only
+  python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --file_prefixes 015 --llm-friendly --extract-code-only
 
 prompt: I want to create an archive of the R code scripts( specific files) in my SickleCell project for use with an LLM
     python -m txtarchive archive "SickleCell" "SickleCell_AnalysisLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output --file_prefixes 1030
@@ -34,7 +34,37 @@ python -m txtarchive archive "lhn" "lhn/lhn-llm-friendly.txt" \
   --split-output-dir "lhn/split_lhn" \
   --exclude-dirs build .git old \
   --root-files setup.py environment_archive_env.yaml environment_spark.yaml \
-  --include-subdirs lhn
+  --include-subdirs lhn \
+  --file_prefixes extract resource shared introspection header cohort data_display data_transformation file_operations function_parameters pandas_utilities spark_utils list_operations query features resource metadata item
+
+  from foresight.discern import push_discern
+from lhn.shared_methods import SharedMethodsMixin
+from lhn.introspection_utils import coalesce, set_default_params
+from lhn.header import re, F, StringType, spark, time, pprint, pd, copy
+from lhn.cohort import identify_target_records, write_index_table
+from lhn.data_display import print_pd, showIU
+from lhn.data_summary import attrition
+from lhn.data_transformation import write_sorted_index_table
+from lhn.file_operations import put_to_hdfs
+from lhn.function_parameters import setFunctionParameters
+from lhn.pandas_utils import dict2Pandas
+from lhn.spark_query import add_parsed_column
+from lhn.spark_utils import  writeTable
+from lhn.list_operations import noColColide, unique_non_none
+from lhn.query import extract_fields_flat_top, query_flat_rwd
+import unicodedata
+from pprint import pformat
+from lhn.features import select_only_baseline, analyze_clinical_measurements
+from lhn.header import get_logger 
+
+# Config
+
+python -m txtarchive archive "config" "config/configYAML-llm-friendly.txt" \
+  --file_types .yaml \
+  --llm-friendly \
+  --split-output \
+  --split-output-dir "config/split_lhn" 
+
 
 # To unpack the archive later:
 # python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"
@@ -57,12 +87,12 @@ response:
     python -m txtarchive unpack "txtarchive.txt" txtarchive 
 
 prompt: I want to extract notebooks form a text archive that was created for use with LLMs
-respons:
+response:
     python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks"
 
 prompt: I want to create an archive of a directory and also include the subdirectories
 response:
-    python -m txtarchive archive_subdirectories "parent_dir" --file_types .yaml .py
+    python -m txtarchive archive "lhn" "lhn/lhn.txt" --file_types .py .md .yaml
 
 prompt: I had an LLM generate a set of archived notebooks that I now want to extract
     python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks"
@@ -73,14 +103,28 @@ prompt: I had an LLM generate a set of archived notebooks that I now want to ext
 # inside the txtarchive directory. Includes top-level files (e.g., .gitignore, README.md,
 # usage.py, setup.py) and the txtarchive/txtarchive subdirectory (e.g., __init__.py, header.py).
 
+prompt: I want to create an archive of the txtarchive package.
+reponse: # Create the standard archive
+python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" \
+  --file_types .py .md .yaml
+
+prompt: I want to create an archive of the config directory
+reponse: python -m txtarchive archive "config" "config/config-LLM-archive.txt" --file_types .yaml
+
 python -m txtarchive archive "txtarchive" "txtarchive/txtarchive-llm-friendly.txt" \
   --file_types .py .md .yaml \
-  --file_prefixes .gitignore \
   --llm-friendly \
   --split-output \
   --split-output-dir "txtarchive/split_txtarchive"
 
+# a not LLM friendly version
+python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" \
+  --file_types .py .md .yaml \
+  --file_prefixes .gitignore 
+
 # To unpack the archive later:
+python -m txtarchive unpack "txtarchive.txt" "txtarchive" --replace_existing
+
 # python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"
 ```
 

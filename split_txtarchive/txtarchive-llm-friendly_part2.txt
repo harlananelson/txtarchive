@@ -1,3 +1,99 @@
+<DOCUMENT>
+# Part 2 of txtarchive-llm-friendly.txt
+        help='Directory to save the reconstructed .ipynb files (output)'
+    )
+    extract_nb_parser.add_argument(
+        '--replace_existing',
+        action='store_true',
+        help='Replace existing .ipynb files in the output directory'
+    )
+
+    args = parser.parse_args()
+
+    if not args.command:
+        if hasattr(args, 'version'):
+            parser.parse_args(['--version'])
+        else:
+            parser.print_help()
+        return
+
+    if args.command == 'archive':
+        archive_files(
+            directory=args.directory,
+            output_file_path=args.output_file,
+            file_types=args.file_types,
+            include_subdirectories=not args.no_subdirectories,
+            extract_code_only=args.extract_code_only,
+            llm_friendly=args.llm_friendly,
+            file_prefixes=args.file_prefixes,
+            split_output=args.split_output,
+            max_chars=args.split_max_chars,
+            split_output_dir=args.split_output_dir,
+            exclude_dirs=args.exclude_dirs,
+            root_files=args.root_files,
+            include_subdirs=args.include_subdirs,
+        )
+    elif args.command == 'unpack':
+        logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
+        run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing)
+    elif args.command == 'archive_subdirectories':
+        archive_subdirectories(args.parent_directory, args.directories, args.combined_archive_dir, args.combined_archive_name, args.file_types)
+    elif args.command == 'extract-notebooks':
+        logger.info(f"Extracting notebooks from {args.archive_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
+        run_extract_notebooks(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing)
+    elif args.command == 'generate':
+        logger.info(f"Generating archive from {args.study_plan_path} and {args.lhn_archive_path}")
+        generate_archive(args.study_plan_path, args.lhn_archive_path, args.output_archive_path, args.llm_model)
+
+if __name__ == "__main__":
+    main()
+
+# the end
+
+
+
+
+    
+
+################################################################################
+# FILE 20: txtarchive\header.py
+################################################################################
+
+import logging
+
+def setup_logger():
+    """Set up and configure the txtarchve logger."""
+    logger = logging.getLogger('txtarchve')
+    logger.setLevel(logging.INFO)
+    
+    # Only add handlers if none exist already
+    if not logger.handlers:
+        # Create formatters
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        
+        # File handler
+        file_handler = logging.FileHandler('txtarchve.log')
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        
+        # Add handlers to logger
+        logger.addHandler(console_handler)
+        logger.addHandler(file_handler)
+    
+    return logger
+
+# Create and configure the logger
+logger = setup_logger()
+
+################################################################################
+# FILE 21: txtarchive\packunpack.py
+################################################################################
+
 import json
 from pathlib import Path
 from .header import logger
@@ -502,6 +598,11 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
     logger.info(f"LLM-friendly archive created at: {output_file_path}")
     return output_file_path
 
+import json
+from pathlib import Path
+from .header import logger
+from datetime import datetime
+
 def archive_files(
     directory,
     output_file_path,
@@ -519,9 +620,7 @@ def archive_files(
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
-    # Add default exclusions for build and .pytest_cache
-    default_exclude_dirs = {"build", ".pytest_cache"}
-    exclude_dirs = set(exclude_dirs or []) | default_exclude_dirs  # Merge with defaults
+    exclude_dirs = set(exclude_dirs or [])  # Convert to set for faster lookup
     root_files = set(root_files or [])  # Specific root files to include
     include_subdirs = set(include_subdirs or [])  # Specific subdirs to include
     processed_files = set()  # Track processed files to prevent duplicates
@@ -659,6 +758,7 @@ def archive_files(
 
     if split_output:
         from .split_files import split_file
+        # Convert split_output_dir to Path if it's a string
         split_dir = Path(split_output_dir) if split_output_dir else output_file_path.parent / f"split_{output_file_path.stem}"
         split_dir.mkdir(parents=True, exist_ok=True)  # Ensure split directory exists
         logger.info(f"Ensured split output directory exists: {split_dir}")
@@ -941,3 +1041,211 @@ def mock_llm_call(prompt):
 def call_llm(prompt, llm_model):
     """Placeholder for real LLM API call."""
     raise NotImplementedError("Real LLM integration not implemented.")
+
+################################################################################
+# FILE 22: txtarchive\split_files.py
+################################################################################
+
+import os
+from pathlib import Path
+
+# Configuration
+MAX_CHARS = 100000  # Target chunk size (adjustable)
+INPUT_DIR = "lhn_files"  # Directory with your files
+OUTPUT_DIR = "split_lhn_files"  # Where split files go
+
+# txtarchive/split_files.py
+import os
+from pathlib import Path
+from .header import logger  # Import logger for consistency
+
+# Configuration
+MAX_CHARS = 100000  # Target chunk size (adjustable)
+INPUT_DIR = "lhn_files"  # Directory with your files
+OUTPUT_DIR = "split_lhn_files"  # Where split files go
+
+def split_file(file_path, max_chars=MAX_CHARS, output_dir=OUTPUT_DIR):
+    """Split a file into chunks under max_chars, preserving document structure."""
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    logger.info(f"Ensured output directory exists: {output_dir}")
+    
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    file_name = Path(file_path).stem  # e.g., 'lhn-llm-friendly'
+    file_ext = Path(file_path).suffix  # e.g., '.txt'
+    total_chars = len(content)
+    
+    if total_chars <= max_chars:
+        # No split needed, copy as-is
+        output_path = os.path.join(output_dir, f"{file_name}{file_ext}")
+        with open(output_path, 'w', encoding='utf-8') as out_f:
+            out_f.write(f"<DOCUMENT>\n{content}\n</DOCUMENT>")
+        logger.info(f"Copied {file_name}{file_ext} ({total_chars} chars)")
+        return
+    
+    # Split into chunks
+    lines = content.splitlines()
+    current_chunk = []
+    current_chars = 0
+    part_num = 1
+    
+    for line in lines:
+        line_chars = len(line) + 1  # +1 for newline
+        if current_chars + line_chars > max_chars and current_chunk:
+            # Write current chunk
+            output_path = os.path.join(output_dir, f"{file_name}_part{part_num}{file_ext}")
+            with open(output_path, 'w', encoding='utf-8') as out_f:
+                chunk_content = "\n".join(current_chunk)
+                out_f.write(f"<DOCUMENT>\n# Part {part_num} of {file_name}{file_ext}\n{chunk_content}\n</DOCUMENT>")
+            logger.info(f"Wrote {output_path} ({current_chars} chars)")
+            current_chunk = []
+            current_chars = 0
+            part_num += 1
+        
+        current_chunk.append(line)
+        current_chars += line_chars
+    
+    # Write final chunk
+    if current_chunk:
+        output_path = os.path.join(output_dir, f"{file_name}_part{part_num}{file_ext}")
+        with open(output_path, 'w', encoding='utf-8') as out_f:
+            chunk_content = "\n".join(current_chunk)
+            out_f.write(f"<DOCUMENT>\n# Part {part_num} of {file_name}{file_ext}\n{chunk_content}\n</DOCUMENT>")
+        logger.info(f"Wrote {output_path} ({current_chars} chars)")
+
+def process_directory(input_dir=INPUT_DIR, output_dir=OUTPUT_DIR, max_chars=MAX_CHARS):
+    """Process all files in input_dir, splitting large ones."""
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Iterate over files
+    for file_name in os.listdir(input_dir):
+        file_path = os.path.join(input_dir, file_name)
+        if os.path.isfile(file_path):
+            split_file(file_path, max_chars, output_dir)
+
+if __name__ == "__main__":
+    process_directory()
+
+
+################################################################################
+# FILE 23: txtarchive\utilities.py
+################################################################################
+
+# These function actuall are not needed because the functionality is already implemented in packunpack.py and demonstrated 
+# in test_packunpack.py. The functions are not used in the main program and are not tested in the test_package.py.
+
+from pathlib import Path
+import logging
+
+
+from pathlib import Path
+import logging
+
+def archive_selected_file_types(parent_directory, directories=None, 
+                                combined_archive_dir=None,
+                                combined_archive_name='all_combined_archives.txt',
+                                file_types=['.yaml', '.py', '.r']):
+    """
+    Given a parent directory, archive all files of a specific type in the directory and its subdirectories.
+    
+    Args:
+        parent_directory (Path): The parent directory to search for files.
+        directories (list): A list of specific directories to archive. If None, all subdirectories will be used.
+        combined_archive_dir (Path): The directory where the combined archive will be saved. If None, the parent directory will be used.
+        combined_archive_name (Path): The name of the combined archive file.
+        file_types (list): A list of file extensions to include in the archive.
+    """
+    all_archives_content = ""
+
+    parent_directory = Path(parent_directory)
+    if combined_archive_dir:
+        combined_archive_dir = Path(combined_archive_dir)
+    combined_archive_name = Path(combined_archive_name)
+
+    # If no specific directories are provided, use all subdirectories
+    if directories is None:
+        directories = [d for d in parent_directory.iterdir() if d.is_dir()]
+    else:
+        directories = [Path(parent_directory) / d for d in directories]
+
+    logging.debug(f"Directories to process: {directories}")
+
+    # Iterate over all items in parent directory
+    for item in directories:
+        logging.debug(f"Processing directory: {item}")
+        
+        # Define the name of the archive file for each subdirectory
+        archive_file_name = f"{item.name}_{combined_archive_name.stem}.txt"
+        archive_file = (combined_archive_dir / archive_file_name) if combined_archive_dir else (parent_directory / archive_file_name)
+        
+        logging.debug(f"Looking for archive file: {archive_file}")
+        
+        # Check if the archive file exists and read its content
+        if archive_file.is_file():
+            logging.debug(f"Found archive file: {archive_file}")
+            with archive_file.open('r') as file:
+                content = file.read()
+                all_archives_content += f"---\nDirectory: {item.name}\n---\n{content}\n\n"
+        else:
+            logging.info(f"No archive file found for directory {item.name}")
+
+    # Ensure the combined archive name has a .txt extension
+    if combined_archive_name.suffix != '.txt':
+        combined_archive_name = combined_archive_name.with_suffix('.txt')
+    
+    archive_path = (combined_archive_dir / combined_archive_name) if combined_archive_dir else (parent_directory / combined_archive_name)
+    
+    logging.debug(f"Writing combined archive to: {archive_path}")
+    
+    with archive_path.open('w') as file:
+        file.write(all_archives_content)
+
+    logging.info(f"All archives combined into {archive_path}")
+
+def archive_configuration_files():
+    # Create the 'configuration' directory if it doesn't exist
+    configuration_dir = Path('configuration')
+    configuration_dir.mkdir(exist_ok=True)
+
+    # Get a list of all YAML files in 'configuration' directory
+    yaml_files = list(configuration_dir.glob('*.yaml'))
+
+    # Open the output file
+    with Path('configuration.txt').open('w') as f:
+        # For each YAML file
+        for file in yaml_files:
+            logging.info(f"{file}")
+            # Write the file name to the output file
+            f.write(f'FILE: {file}\n')
+
+            # Write the contents of the file to the output file
+            with file.open('r') as file_contents:
+                f.write(file_contents.read())
+                f.write('\n')
+
+# Example usage
+# parent_directory = '/path/to/Projects'
+# archive_selected_file_types(parent_directory)
+# archive_configuration_files()
+
+
+################################################################################
+# FILE 24: usage.py
+################################################################################
+
+import os
+from pathlib import Path
+import re
+
+def getParentDirectory():
+    parentDirectory = Path(os.getcwd(),'Projects')
+    return(parentDirectory)
+
+i
+
+
+
+</DOCUMENT>

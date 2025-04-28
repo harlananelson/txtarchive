@@ -1,9 +1,667 @@
-# Archive created on: 2025-04-28 10:23:32
+# Archive created on: 2025-04-28 15:38:11
 
 # Standard Archive Format
 
 ---
-Filename: header.py
+Filename: .gitignore
+---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# celery beat schedule file
+celerybeat-schedule
+
+# dotenv
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Visual Studio Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Other
+*.bak
+*.swp
+*~
+
+
+---
+Filename: onhold.py
+---
+def archive_subdirectories(parent_directory, archive_dir=None, archive_name='all_archives.txt', directories=None):
+    """
+    Combine the contents of all archives in the specified subdirectories into a single file.
+
+    This function reads the contents of all archives in the specified subdirectories and combines them into a single
+    file. The combined file is saved in the parent directory with the specified name.
+
+    Parameters:
+    parent_directory (str): The parent directory containing the subdirectories.
+    archive_dir (str): The directory where the archives are stored. If None, the parent directory is used.
+    archive_name (str): The name of the combined archive file.
+    directories (list of str): The subdirectories to include. If None, all subdirectories are included.
+
+    Returns:
+    None
+    """
+    print("function: archive_subdirectories")
+    all_archives_content = ""
+
+    # If no specific directories are provided, use all subdirectories
+    if directories is None:
+        print(f"using All directories of {parent_directory}")
+        directories = os.listdir(parent_directory)
+    else:
+        print(f"only using the directories: {directories}") 
+
+    # Iterate over all items in parent directory
+    for item in directories:
+        # Define the name of the archive file for each subdirectory
+        archive_file_name = f"{item}_{archive_name}.txt"
+        archive_file = os.path.join(archive_dir or parent_directory, archive_file_name)
+        
+        # Check if the archive file exists and read its content
+        if os.path.isfile(archive_file):
+            with open(archive_file, 'r') as file:
+                print(f"Extract Archived {archive_file} \n")
+                content = file.read()
+                print(f"---\nDirectory: {item}\n")
+                all_archives_content += f"---\nDirectory: {item}\n---\n{content}\n\n"
+                print("End of Directory\n")
+        else:
+            print(f"No archive file found for directory {item}")
+
+    # Write all archives content to a single file in the parent directory
+    if not archive_name.endswith('.txt'):
+        archive_name += '.txt'
+    
+    archive_path = os.path.join(archive_dir or parent_directory, archive_name)
+    with open(archive_path, 'w') as file:
+        file.write(all_archives_content)
+
+    print(f"All archives combined into {archive_path}")
+
+# Create an archive of yaml configuration files.
+
+# Create the 'configuration' directory if it doesn't exist
+os.makedirs('configuration', exist_ok=True)
+
+# Get a list of all Python files in 'lhn' directory and its subdirectories
+python_files = glob.glob('configuration/*.yaml', recursive=True)
+
+# Open the output file
+with open('configuration.txt', 'w') as f:
+    # For each Python file
+    for file in python_files:
+        print(f"{file}")
+        # Write the file name to the output file
+        f.write(f'FILE: {file}\n')
+        
+        # Write the contents of the file to the output file
+        with open(file, 'r') as file_contents:
+            f.write(file_contents.read())
+            f.write('\n')
+
+---
+Filename: README.md
+---
+Since you’re the sole user of the `txtarchive` package and have added features like `--split-output` and `extract-notebooks`, creating a `README.md` is a smart move to document the package’s purpose, installation, usage, and key commands—especially with the examples now included in the CLI help. A `README.md` serves as a centralized reference, complementing the inline help you added to `__main__.py`. It’s particularly useful for jogging your memory about the package’s capabilities, setup, or specific workflows (e.g., archiving Jupyter notebooks for LLMs or extracting `.ipynb` files), and it can be expanded later if you decide to share the package.
+
+Given your usage patterns (e.g., archiving `.ipynb` and `.py` files, LLM-friendly formats, splitting large archives, extracting notebooks), the `README.md` should be concise, practical, and tailored to your needs. It should cover:
+- What the package does.
+- How to install it.
+- Key commands with examples (mirroring or expanding on the CLI help).
+- Notes on specific features (e.g., handling split archives).
+- Any setup or dependency details.
+
+Below, I’ll propose a `README.md` that aligns with your package’s current state, reflects the input -> output argument order (e.g., `archive_file_path output_directory` for `extract-notebooks`), and includes examples from your `__main__.py` comments and recent commands. I’ll keep it in Markdown format for clarity and portability.
+
+---
+
+### Proposed `README.md`
+
+```markdown
+# txtarchive
+
+A Python utility for archiving text files (e.g., `.py`, `.ipynb`, `.yaml`) into a single text file and extracting them back. Designed for creating LLM-friendly archives of Jupyter notebooks (without metadata) and reconstructing `.ipynb` files from those archives. Supports splitting large archives for LLM input limits.
+
+This package is a personal tool for managing code archives, particularly for preparing notebook code for LLMs and restoring notebooks for other workflows.
+
+## Features
+
+- **Archive**: Combine files from a directory into a text archive, optionally in LLM-friendly format (code-only for notebooks).
+- **Unpack**: Extract files from a text archive to a directory.
+- **Extract Notebooks**: Reconstruct `.ipynb` files from an LLM-friendly archive.
+- **Split Output**: Split large archives into chunks (default: 100,000 characters) for LLM compatibility.
+- **Subdirectory Archiving**: Archive subdirectories into separate files.
+
+## Installation
+
+1. Clone or navigate to the package directory:
+   ```bash
+   cd /path/to/txtarchive
+   ```
+
+2. Install using pip:
+   ```bash
+   pip install .
+   ```
+
+3. Verify installation:
+   ```bash
+   python -m txtarchive --version
+   ```
+
+**Requirements**:
+- Python 3.8+
+- No external dependencies
+
+## Usage
+
+Run `python -m txtarchive --help` for full command details and examples. Below are the main commands and common use cases.
+
+### Commands
+
+#### Archive
+Combine files from a directory into a text archive.
+
+```bash
+python -m txtarchive archive <directory> <output_file> [options]
+```
+
+**Options**:
+- `--file_types`: File extensions (e.g., `.ipynb`, `.py`, `.yaml`).
+- `--no-subdirectories`: Archive only top-level files.
+- `--llm-friendly`: Format for LLMs (strips notebook metadata).
+- `--extract-code-only`: Include only code cells from notebooks.
+- `--file_prefixes`: Filter files by prefix (e.g., `01`, `config-`).
+- `--split-output`: Split archive into chunks.
+- `--split-max-chars`: Max characters per chunk (default: 100000).
+- `--split-output-dir`: Directory for split files (default: `split_<output_file_stem>`).
+
+**Examples**:
+- Archive Jupyter notebooks as LLM-friendly code:
+  ```bash
+  python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output
+  ```
+- Archive Python files:
+  ```bash
+  python -m txtarchive archive "lhn" "lhn.txt" --file_types .py --no-subdirectories
+  ```
+
+#### Unpack
+Extract files from a text archive to a directory.
+
+```bash
+python -m txtarchive unpack <combined_file_path> <output_directory> [--replace_existing]
+```
+
+**Example**:
+```bash
+python -m txtarchive unpack "lhn.txt" "unpacked_lhn"
+```
+
+#### Extract Notebooks
+Reconstruct `.ipynb` files from an LLM-friendly archive.
+
+```bash
+python -m txtarchive extract-notebooks <archive_file_path> <output_directory> [--replace_existing]
+```
+
+**Example**:
+```bash
+python -m txtarchive extract-notebooks "SickleCell_ADSCreationLLM.txt" "extracted_notebooks"
+```
+
+#### Archive Subdirectories
+Archive each subdirectory of a parent directory into separate files.
+
+```bash
+python -m txtarchive archive_subdirectories <parent_directory> [options]
+```
+
+**Example**:
+```bash
+python -m txtarchive archive_subdirectories "parent_dir" --file_types .yaml .py
+```
+
+### Notes
+
+- **Split Archives**: If using `--split-output`, split files are saved in `<split_output_dir>` (e.g., `split_SickleCell_ADSCreationLLM`). To extract notebooks from split archives, concatenate first:
+  ```bash
+  cat split_SickleCell_ADSCreationLLM/* > SickleCell_ADSCreationLLM.txt
+  python -m txtarchive extract-notebooks "SickleCell_ADSCreationLLM.txt" "extracted_notebooks"
+  ```
+- **Logs**: Check `txtarchve.log` for processing details or errors.
+- **LLM-Friendly Archives**: Use `--llm-friendly --extract-code-only` for notebooks to remove metadata and non-code cells, ideal for LLM input.
+- **Notebook Reconstruction**: Extracted `.ipynb` files include minimal metadata (Python 3 kernel) and code cells only if `--extract-code-only` was used.
+
+## Example Workflow
+
+1. Archive notebooks for LLM use:
+   ```bash
+   python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output
+   ```
+
+2. Extract notebooks for Jupyter use:
+   ```bash
+   python -m txtarchive extract-notebooks "SickleCell_ADSCreationLLM.txt" "extracted_notebooks"
+   jupyter notebook extracted_notebooks/
+   ```
+
+3. Archive Python files for backup:
+   ```bash
+   python -m txtarchive archive "lhn" "lhn.txt" --file_types .py --no-subdirectories
+   ```
+
+## Development
+
+To modify the package:
+1. Edit files in `txtarchive/` (e.g., `__main__.py`, `packunpack.py`).
+2. Reinstall:
+   ```bash
+   pip install --force-reinstall .
+   ```
+
+**Files**:
+- `__main__.py`: CLI interface and command parsing.
+- `packunpack.py`: Core archiving and extraction logic.
+- `split_files.py`: Splits large archives.
+- `header.py`: Logging setup.
+- `__init__.py`: Package initialization.
+
+## License
+
+Personal use only. No formal license defined.
+
+---
+
+Created for managing code archives by [Your Name].
+```
+
+---
+
+### Explanation of `README.md` Design
+- **Title and Intro**: Clearly states `txtarchive`’s purpose (archiving, LLM-friendly notebooks, extracting `.ipynb`) and your personal use case.
+- **Features**: Lists the main capabilities, highlighting your key additions (`--split-output`, `extract-notebooks`).
+- **Installation**: Simple steps matching your `pip install .` workflow, with Python 3.8+ noted (from `setup.py`).
+- **Usage**: Organized by command, with:
+  - Syntax and main options (drawn from `__main__.py` help).
+  - Examples from your `__main__.py` comments and recent commands (e.g., `SickleCell_ADSCreationLLM.txt`).
+  - Input -> output order (e.g., `archive_file_path output_directory` for `extract-notebooks`).
+- **Notes**: Addresses practical details like split archives, logs, and LLM-friendly specifics.
+- **Example Workflow**: Shows a typical sequence (archive -> extract -> Jupyter), reflecting your notebook use case.
+- **Development**: Brief guide for modifying the package, since you actively tweak it.
+- **License**: Notes personal use, as you’re the only user.
+- **Length**: Concise (~100 lines) but comprehensive, balancing detail with readability.
+
+**Tailored to You**:
+- Includes your commands (e.g., `SickleCell_ADSCreationLLM.txt`, `lhn.txt`).
+- Emphasizes `.ipynb` and `.py` archiving, LLM-friendly formats, and notebook extraction.
+- Mentions split archives, as you use `--split-output`.
+- Keeps it practical for quick reference, avoiding boilerplate.
+
+---
+
+### Step 1: Create `README.md`
+Save the above content as `README.md` in your package root:
+
+```bash
+cd /path/to/txtarchive
+nano README.md
+```
+
+Paste the Markdown, save, and exit.
+
+---
+
+### Step 2: Update `setup.py` (Optional)
+Your `setup.py` already includes:
+
+```python
+long_description=open('README.md').read() if os.path.exists('README.md') else '',
+long_description_content_type="text/markdown",
+```
+
+Verify it works:
+
+```bash
+python -m pip show txtarchive
+```
+
+Look for the `Description` field, which should show the `README.md` content. If not, reinstall:
+
+```bash
+pip install --force-reinstall .
+```
+
+---
+
+### Step 3: Verify `README.md`
+Check the file:
+
+```bash
+cat README.md
+```
+
+Test commands from the `README.md`:
+
+```bash
+# Archive notebooks
+python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output
+ls split_SickleCell_ADSCreationLLM
+
+# Extract notebooks
+python -m txtarchive extract-notebooks "SickleCell_ADSCreationLLM.txt" "extracted_notebooks"
+ls extracted_notebooks
+
+# Archive Python files
+mkdir -p lhn
+echo "x = 1" > lhn/script.py
+python -m txtarchive archive "lhn" "lhn.txt" --file_types .py --no-subdirectories
+cat lhn.txt
+```
+
+**Expected**:
+- Split files in `split_SickleCell_ADSCreationLLM/`.
+- `.ipynb` files in `extracted_notebooks/`.
+- `lhn.txt` with `script.py` content.
+
+Check the help to ensure it complements the `README.md`:
+
+```bash
+python -m txtarchive --help
+```
+
+---
+
+### Step 4: Considerations
+- **Examples**: The `README.md` examples overlap with the CLI help but include more context (e.g., workflow). If you want unique examples, add cases like:
+  ```bash
+  python -m txtarchive archive "configuration" "configurationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes config-global config-RWD --llm-friendly --extract-code-only
+  ```
+- **Detail Level**: It’s concise for your personal use. If you want more (e.g., troubleshooting, file format details), we can expand sections.
+- **Versioning**: Add a version note (e.g., `Version: 0.1.0`) if you track releases.
+- **Split Archives**: The note about concatenating split files is included. If you want a command to automate this, we can add a new feature.
+- **Maintenance**: Update the `README.md` when you add features (e.g., new flags). Sync it with `__main__.py`’s epilog to avoid confusion.
+
+---
+
+### Final Answer
+The proposed `README.md` documents `txtarchive`’s purpose, installation, and usage, tailored to your workflows (archiving `.ipynb`/`.py`, LLM-friendly formats, splitting, extracting notebooks). It includes examples from your `__main__.py` comments and recent commands, reinforcing the input -> output order (e.g., `extract-notebooks "SickleCell_ADSCreationLLM.txt" "extracted_notebooks"`).
+
+**Steps**:
+1. Create `README.md` with the provided content:
+   ```markdown
+   # txtarchive
+   ...
+   ```
+2. Reinstall (if `setup.py` uses `long_description`):
+   ```bash
+   pip install --force-reinstall .
+   ```
+3. Verify:
+   ```bash
+   cat README.md
+   python -m txtarchive --help
+   python -m txtarchive extract-notebooks "SickleCell_ADSCreationLLM.txt" "extracted_notebooks"
+   ```
+
+The `README.md` complements the CLI help, providing a standalone reference for your package. If you want to tweak examples, add sections (e.g., troubleshooting), or sync it differently with the help text, let me know!
+
+---
+Filename: setup.py
+---
+# setup.py
+# setup.py
+import os  # Add this line
+
+
+from setuptools import setup, find_packages
+
+setup(
+    name="txtarchive",
+    version="0.1.0",
+    packages=find_packages(),
+    include_package_data=True,
+    install_requires=[],
+    entry_points={
+        'console_scripts': [
+            'txtarchive = txtarchive.__main__:main',
+        ],
+    },
+    author="Your Name",
+    author_email="hnelson3@iuhealth.org",
+    description="A utility for archiving and unpacking text files",
+    long_description=open('README.md').read() if os.path.exists('README.md') else '',
+    long_description_content_type="text/markdown",
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+    ],
+    python_requires='>=3.7.8',
+)
+
+---
+Filename: test_package.py
+---
+from pathlib import Path
+from .utilities import archive_selected_file_types, archive_configuration_files
+from .packunpack import concatenate_files, archive_subdirectories, combine_all_archives, run_concat, unpack_files
+from .header import logger
+
+def test_archive_selected_file_types():
+    # Your debug statement
+    archive_path = Path(Path.cwd() / "archivefiles" / "archive.csv")
+    logger.debug(F"Writing combined archive to: {archive_path}")
+    
+    print("Testing archive_selected_file_types... ")
+    dirtxt = 'configuration'
+    example_directory = Path.cwd() / dirtxt
+    print(f"Example directory: {example_directory}")
+    
+    combined_archive_name = Path.cwd() / 'archivefiles' / f'{dirtxt}_combined.txt'
+    
+    archive_selected_file_types(
+        parent_directory = example_directory,
+        directories=None,
+        combined_archive_dir=Path("archivefiles"),
+        combined_archive_name=combined_archive_name,
+        file_types=['.yaml']
+    )
+    
+def test_archive_configuration_files():
+    print("Testing archive_configuration_files... ")
+    archive_configuration_files()
+    print("Completed archive_configuration_files.")
+ 
+
+def _test_package_functionality():
+    # Your debug statement
+    
+    logger.debug(f"Writing combined archive to: {archive_path}")
+    
+    print("Testing package functionality...")
+    dirtxt = 'configuration'
+    example_directory = Path.cwd() / dirtxt
+    print(f"Example directory: {example_directory}")
+    
+    combined_archive_name = Path.cwd() / 'archivefiles' / f'{dirtxt}_combined.txt'
+    
+    concatenate_files(directory = example_directory, 
+                      combined_file_path = combined_archive_name, 
+                      file_types=['.yaml'])
+    
+    
+    print(f"Completed archive_selected_file_types for directory: {example_directory}")
+
+   
+if __name__ == "__main__":
+    logger.basicConfig(level=logger.info, format="%(asctime)s - %(levelname)s - %(message)s")
+    test_archive_selected_file_types()
+
+---
+Filename: usage.py
+---
+import os
+from pathlib import Path
+import re
+
+def getParentDirectory():
+    parentDirectory = Path(os.getcwd(),'Projects')
+    return(parentDirectory)
+
+i
+
+
+
+---
+Filename: tests\test_packunpack.py
+---
+import pytest
+from pathlib import Path
+from txtarchive.packunpack import run_concat
+
+# how to run the test from the bash command line
+# make sure you are in the root directory of the package
+# such as cd /home/runner/work/txtarchive/txtarchive
+# pytest tests/test_packunpack.py
+
+@pytest.fixture
+def temp_dir(tmp_path):
+    # Create some test files in the temporary directory
+    (tmp_path / 'test1.yaml').write_text('content of test1.yaml')
+    (tmp_path / 'test2.py').write_text('content of test2.py')
+    (tmp_path / 'test3.r').write_text('content of test3.r')
+    (tmp_path / 'ignore.log').write_text('this should be ignored')
+    return tmp_path
+
+def test_run_concat_with_strings(temp_dir):
+    combined_file = str(temp_dir / 'combined_files.txt')
+    run_concat(str(temp_dir), combined_files = combined_file, file_types=['.yaml', '.py', '.r'])    
+    assert (temp_dir / 'combined_files.txt').exists()
+    
+def test_run_concate_with_paths(temp_dir):
+    combined_file = temp_dir / 'combined_files.txt'
+    run_concat(temp_dir, combined_files = combined_file, file_types=['.yaml', '.py', '.r'])    
+    content = combined_file.read_text()
+    assert 'content of test1.yaml' in content
+    assert 'content of test2.py' in content
+    assert 'content of test3.r' in content
+    assert 'this should be ignored' not in content
+
+---
+Filename: tests\__init__.py
+---
+
+
+---
+Filename: txtarchive\header.py
 ---
 import logging
 
@@ -37,7 +695,7 @@ def setup_logger():
 logger = setup_logger()
 
 ---
-Filename: packunpack.py
+Filename: txtarchive\packunpack.py
 ---
 import json
 from pathlib import Path
@@ -543,18 +1201,6 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
     logger.info(f"LLM-friendly archive created at: {output_file_path}")
     return output_file_path
 
-
-import json
-from pathlib import Path
-from .header import logger
-from datetime import datetime
-import os
-
-# txtarchive/packunpack.py (updated snippet)
-# txtarchive/packunpack.py (updated snippet)
-# txtarchive/packunpack.py
-# txtarchive/packunpack.py
-
 def archive_files(
     directory,
     output_file_path,
@@ -563,12 +1209,21 @@ def archive_files(
     extract_code_only=False,
     file_prefixes=None,
     llm_friendly=False,
-    split_output=False,  # New parameter
-    max_chars=100000,   # Splitting threshold
-    split_output_dir=None  # Directory for split files
+    split_output=False,
+    max_chars=100000,
+    split_output_dir=None,
+    exclude_dirs=None,
+    root_files=None,
+    include_subdirs=None,
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
+    # Add default exclusions for build and .pytest_cache
+    default_exclude_dirs = {"build", ".pytest_cache"}
+    exclude_dirs = set(exclude_dirs or []) | default_exclude_dirs  # Merge with defaults
+    root_files = set(root_files or [])  # Specific root files to include
+    include_subdirs = set(include_subdirs or [])  # Specific subdirs to include
+    processed_files = set()  # Track processed files to prevent duplicates
 
     logger.info(f"Archiving files from: {directory}")
     all_contents = ""
@@ -583,13 +1238,76 @@ def archive_files(
     else:
         all_contents += "# Standard Archive Format\n\n"
 
+    # Verify input directory exists
+    if not directory.is_dir():
+        logger.error(f"Input directory does not exist: {directory}")
+        raise FileNotFoundError(f"Input directory does not exist: {directory}")
+
+    # Create output directory if it doesn't exist
+    output_file_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Ensured output directory exists: {output_file_path.parent}")
+
+    # Process root files explicitly
+    for file_name in root_files:
+        path = directory / file_name
+        if not path.is_file():
+            logger.warning(f"Root file not found: {path}")
+            continue
+        if path.name.startswith((".", "#")) and path.name != ".gitignore":
+            logger.info(f"Skipping hidden root file: {path}")
+            continue
+        logger.info(f"Processing root file: {path}")
+        rel_path = path.relative_to(directory)
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as file:
+                content = file.read()
+            if llm_friendly:
+                file_list.append((rel_path, content))
+                processed_files.add(str(rel_path))  # Track as processed
+            else:
+                all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+        except Exception as e:
+            logger.error(f"Error reading root file {path}: {e}")
+            content = f"# Error reading file: {e}\n\n"
+            if llm_friendly:
+                file_list.append((rel_path, content))
+                processed_files.add(str(rel_path))
+            else:
+                all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+
+    # Process files in directory and subdirectories
     file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
 
     for path in file_iterator:
-        if path.is_file() and not path.name.startswith((".", "#")) and path.suffix in file_types:
-            if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
+        # Skip files in excluded directories
+        if include_subdirectories and any(parent.name in exclude_dirs for parent in path.parents):
+            logger.info(f"Skipping file in excluded directory: {path}")
+            continue
+        # Process files in root or all subdirs (if include_subdirs is empty) or specified subdirs
+        rel_path = path.relative_to(directory)
+        parent_dir = rel_path.parent.name if rel_path.parent != Path(".") else ""
+        is_root_file = rel_path.parent == Path(".")
+        # Include all subdirs if include_subdirs is empty, otherwise check specific subdirs
+        is_included_subdir = not include_subdirs or parent_dir in include_subdirs
+        if not (is_root_file or (include_subdirectories and is_included_subdir)):
+            logger.info(f"Skipping file not in root or included subdir: {path}")
+            continue
+        if path.is_file():
+            # Allow .gitignore explicitly
+            is_gitignore = path.name == ".gitignore"
+            if not (is_gitignore or (not path.name.startswith((".", "#")) and path.suffix in file_types)):
                 continue
-            rel_path = path.relative_to(directory)
+            # Skip root files already processed
+            if is_root_file and path.name in root_files:
+                logger.info(f"Skipping already processed root file: {path}")
+                continue
+            # Skip files already processed
+            if str(rel_path) in processed_files:
+                logger.info(f"Skipping already processed file: {path}")
+                continue
+            if file_prefixes and not is_gitignore and not any(path.name.startswith(prefix) for prefix in file_prefixes):
+                continue
+            logger.info(f"Processing file: {path}")
             content = None
             if path.suffix == ".ipynb":
                 try:
@@ -618,6 +1336,7 @@ def archive_files(
             if content is not None:
                 if llm_friendly:
                     file_list.append((rel_path, content))
+                    processed_files.add(str(rel_path))  # Track as processed
                 else:
                     all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
 
@@ -632,34 +1351,20 @@ def archive_files(
             all_contents += content
             all_contents += "\n\n"
 
-    with output_file_path.open("w", encoding="utf-8", errors="replace") as file:
+    with output_file_path.open("w", encoding="utf-8") as file:
         file.write(all_contents)
 
     logger.info(f"Archive created at: {output_file_path}")
 
     if split_output:
         from .split_files import split_file
-        split_dir = split_output_dir or output_file_path.parent / f"split_{output_file_path.stem}"
+        split_dir = Path(split_output_dir) if split_output_dir else output_file_path.parent / f"split_{output_file_path.stem}"
+        split_dir.mkdir(parents=True, exist_ok=True)  # Ensure split directory exists
+        logger.info(f"Ensured split output directory exists: {split_dir}")
         split_file(output_file_path, max_chars=max_chars, output_dir=split_dir)
         logger.info(f"Split files created in: {split_dir}")
 
     return output_file_path
-
-    # txtarchive/packunpack.py
-import json
-from pathlib import Path
-from .header import logger
-from datetime import datetime
-
-# ... (existing imports and functions remain unchanged)
-
-# txtarchive/packunpack.py
-import json
-from pathlib import Path
-from .header import logger
-from datetime import datetime
-
-# ... (other functions unchanged)
 
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
     """
@@ -937,7 +1642,7 @@ def call_llm(prompt, llm_model):
     raise NotImplementedError("Real LLM integration not implemented.")
 
 ---
-Filename: split_files.py
+Filename: txtarchive\split_files.py
 ---
 import os
 from pathlib import Path
@@ -1024,7 +1729,7 @@ if __name__ == "__main__":
 
 
 ---
-Filename: utilities.py
+Filename: txtarchive\utilities.py
 ---
 # These function actuall are not needed because the functionality is already implemented in packunpack.py and demonstrated 
 # in test_packunpack.py. The functions are not used in the main program and are not tested in the test_package.py.
@@ -1125,7 +1830,7 @@ def archive_configuration_files():
 
 
 ---
-Filename: __init__.py
+Filename: txtarchive\__init__.py
 ---
 # txtarchive/__init__.py
 PACKAGE_CONSTANT = 'constant value'
@@ -1164,7 +1869,7 @@ __all__ = [
 ]
 
 ---
-Filename: __main__.py
+Filename: txtarchive\__main__.py
 ---
 # txtarchive/__main__.py
 import argparse
@@ -1195,6 +1900,28 @@ prompt: I want to create an archive of my Martini_Gilbert_EBP_Well-being project
 response: 
     python -m txtarchive archive "Martini_Gilbert_EBP_Well-being" "Martini_Gilbert_EBP_Well-being.txt" --file_types qmd R r  --no-subdirectories --llm-friendly --extract-code-only --split-output
 
+python -m txtarchive archive "lhn" "lhn/lhn-llm-friendly.txt" \
+  --file_types .py .md .yaml \
+  --llm-friendly \
+  --split-output \
+  --split-output-dir "lhn/split_lhn" \
+  --exclude-dirs build .git old \
+  --root-files setup.py environment_archive_env.yaml environment_spark.yaml \
+  --include-subdirs lhn
+
+# Config
+
+python -m txtarchive archive "config" "config/configYAML-llm-friendly.txt" \
+  --file_types .yaml \
+  --llm-friendly \
+  --split-output \
+  --split-output-dir "config/split_lhn" 
+
+
+# To unpack the archive later:
+# python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"
+```
+
 prompt: I want to create an archive of my lhn package for use with and LLM, in only one file
 response:
     python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" --file_types .py --no-subdirectories --llm-friendly --split-output
@@ -1203,6 +1930,7 @@ prompt:I want to create an archive of my lhn package, for use with an LLM, but s
 response:
     python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" --file_types .py --no-subdirectories --llm-friendly --split-output --split-output-dir "split_lhn"
 
+# txtarchive
 prompt: I want to create an archive of my lhn package that I can later unpack 
 response
     python -m txtarchive archive "txtarchive" "txtarchive.txt" --file_types .py --no-subdirectories
@@ -1211,15 +1939,42 @@ response:
     python -m txtarchive unpack "txtarchive.txt" txtarchive 
 
 prompt: I want to extract notebooks form a text archive that was created for use with LLMs
-respons:
+response:
     python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks"
 
 prompt: I want to create an archive of a directory and also include the subdirectories
 response:
-    python -m txtarchive archive_subdirectories "parent_dir" --file_types .yaml .py
+    python -m txtarchive archive "lhn" "lhn/lhn.txt" --file_types .py .md .yaml
 
 prompt: I had an LLM generate a set of archived notebooks that I now want to extract
     python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks"
+
+```bash
+#!/bin/bash
+# Command to archive the txtarchive Python package into an LLM-friendly text archive
+# inside the txtarchive directory. Includes top-level files (e.g., .gitignore, README.md,
+# usage.py, setup.py) and the txtarchive/txtarchive subdirectory (e.g., __init__.py, header.py).
+
+prompt: I want to create an archive of the txtarchive package.
+reponse: python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" --file_types .py .md .yaml
+
+prompt: I want to create an archive of the config directory
+reponse: python -m txtarchive archive "config" "config/config-LLM-archive.txt" --file_types .yaml
+
+python -m txtarchive archive "txtarchive" "txtarchive/txtarchive-llm-friendly.txt" \
+  --file_types .py .md .yaml \
+  --llm-friendly \
+  --split-output \
+  --split-output-dir "txtarchive/split_txtarchive"
+
+# a not LLM friendly version
+python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" \
+  --file_types .py .md .yaml \
+  --file_prefixes .gitignore 
+
+# To unpack the archive later:
+# python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"
+```
 
 prompt: I want to us LLM create create a project (directory) of code that will create an analsysis
 reponse:
@@ -1300,6 +2055,21 @@ reponse:
         '--split-output-dir',
         type=str,
         help='Directory for split files (default: split_<output_file_stem>)'
+    )
+    archive_parser.add_argument(
+        '--exclude-dirs',
+        nargs='+',
+        help='Subdirectories to exclude (e.g., build .git old)'
+    )
+    archive_parser.add_argument(
+        '--root-files',
+        nargs='+',
+        help='Specific root files to include regardless of file_types (e.g., requirements.txt setup.py)'
+    )
+    archive_parser.add_argument(
+        '--include-subdirs',
+        nargs='+',
+        help='Specific subdirectories to include (e.g., lhn)'
     )
 
     # --- unpack Command ---
@@ -1428,6 +2198,9 @@ reponse:
             split_output=args.split_output,
             max_chars=args.split_max_chars,
             split_output_dir=args.split_output_dir,
+            exclude_dirs=args.exclude_dirs,
+            root_files=args.root_files,
+            include_subdirs=args.include_subdirs,
         )
     elif args.command == 'unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
