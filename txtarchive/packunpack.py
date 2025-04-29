@@ -155,25 +155,28 @@ def unpack_files(output_directory, combined_file_path, replace_existing=False):
         logger.info("Directory already exists: %s", output_directory)
 
     for section in sections:
-        filename, content = section.split("\n---\n", 1)
-        
-        # Handle relative paths in the filename
-        output_path = output_directory / filename.strip()
-        
-        # Create parent directories if they don't exist
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        if output_path.exists() and not replace_existing:
-            output_path = output_path.with_suffix(output_path.suffix + "_copy")
+        try:
+            filename, content = section.split("\n---\n", 1)
+            # Normalize filename: replace backslashes (single or double) with forward slashes
+            normalized_filename = filename.strip().replace('\\\\', '/').replace('\\', '/')
+            logger.debug(f"Normalized filename: {normalized_filename}")
             
-        with output_path.open("w", encoding="utf-8") as file:
-            file.write(content)
-            logger.info("Unpacked file: %s", output_path)
+            # Handle relative paths in the filename
+            output_path = output_directory / normalized_filename
+            
+            # Create parent directories if they don't exist
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            if output_path.exists() and not replace_existing:
+                output_path = output_path.with_suffix(output_path.suffix + "_copy")
+                
+            with output_path.open("w", encoding="utf-8") as file:
+                file.write(content)
+                logger.info("Unpacked file: %s", output_path)
+        except Exception as e:
+            logger.error(f"Error processing section for {filename}: {e}")
+            continue
     logger.info("Files unpacked into: %s", output_directory)
-
-
-
-
 
 def run_concat_no_subdirs(
     current_directory,

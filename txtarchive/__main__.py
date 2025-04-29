@@ -13,132 +13,73 @@ def main():
     epilog = """
 Examples:
 
-# Sickle Cell
-prompt: I want to create an archive of the ADS creation python scripts (specific files) in my SickleCell project for use with an LLM model.
-response: python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output --file_prefixes 011 015 016 017 050 060 065 066 067 070
-  python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb .yaml --no-subdirectories --file_prefixes 011 015 016 017 050 060 065 066 067 070 --llm-friendly --extract-code-only
-  python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" --file_types .ipynb --no-subdirectories --file_prefixes 015 --llm-friendly --extract-code-only
-
-prompt: I want to create an archive of the R code scripts( specific files) in my SickleCell project for use with an LLM
-    python -m txtarchive archive "SickleCell" "SickleCell_AnalysisLLM.txt" --file_types .ipynb --no-subdirectories --llm-friendly --extract-code-only --split-output --file_prefixes 1030
-
-# Martini_Gilbert_EBP_Well_being
-prompt: I want to create an archive of my Martini_Gilbert_EBP_Well-being project for use with an LLM
-response: 
-    python -m txtarchive archive "Martini_Gilbert_EBP_Well-being" "Martini_Gilbert_EBP_Well-being.txt" --file_types qmd R r  --no-subdirectories --llm-friendly --extract-code-only --split-output
-
-python -m txtarchive archive "lhn" "lhn/lhn-llm-friendly.txt" \
-  --file_types .py .md .yaml \
-  --llm-friendly \
-  --split-output \
-  --split-output-dir "lhn/split_lhn" \
-  --exclude-dirs build .git old \
-  --root-files setup.py environment_archive_env.yaml environment_spark.yaml \
-  --include-subdirs lhn \
-  --file_prefixes extract resource shared introspection header cohort data_display data_transformation file_operations function_parameters pandas_utilities spark_utils list_operations query features resource metadata item
-
-  from foresight.discern import push_discern
-from lhn.shared_methods import SharedMethodsMixin
-from lhn.introspection_utils import coalesce, set_default_params
-from lhn.header import re, F, StringType, spark, time, pprint, pd, copy
-from lhn.cohort import identify_target_records, write_index_table
-from lhn.data_display import print_pd, showIU
-from lhn.data_summary import attrition
-from lhn.data_transformation import write_sorted_index_table
-from lhn.file_operations import put_to_hdfs
-from lhn.function_parameters import setFunctionParameters
-from lhn.pandas_utils import dict2Pandas
-from lhn.spark_query import add_parsed_column
-from lhn.spark_utils import  writeTable
-from lhn.list_operations import noColColide, unique_non_none
-from lhn.query import extract_fields_flat_top, query_flat_rwd
-import unicodedata
-from pprint import pformat
-from lhn.features import select_only_baseline, analyze_clinical_measurements
-from lhn.header import get_logger 
-
-# Config
-
-python -m txtarchive archive "config" "config/configYAML-llm-friendly.txt" \
-  --file_types .yaml \
-  --llm-friendly \
-  --split-output \
-  --split-output-dir "config/split_lhn" 
-
-
-# To unpack the archive later:
-# python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"
-```
-
-prompt: I want to create an archive of my lhn package for use with and LLM, in only one file
-response:
-    python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" --file_types .py --no-subdirectories --llm-friendly --split-output
-
-prompt:I want to create an archive of my lhn package, for use with an LLM, but split into multiple files
-response:
-    python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" --file_types .py --no-subdirectories --llm-friendly --split-output --split-output-dir "split_lhn"
-
-# txtarchive
-prompt: I want to create an archive of my lhn package that I can later unpack 
-response
-    python -m txtarchive archive "txtarchive" "txtarchive.txt" --file_types .py --no-subdirectories
-prompt: I want to unpack an archive of my lhn package I made previously
-response:
-    python -m txtarchive unpack "txtarchive.txt" txtarchive 
-
-prompt: I want to extract notebooks form a text archive that was created for use with LLMs
-response:
-    python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks"
-
-prompt: I want to create an archive of a directory and also include the subdirectories
-response:
-    python -m txtarchive archive "lhn" "lhn/lhn.txt" --file_types .py .md .yaml
-
-prompt: I had an LLM generate a set of archived notebooks that I now want to extract
-    python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks"
-
-```bash
-#!/bin/bash
-# Command to archive the txtarchive Python package into an LLM-friendly text archive
-# inside the txtarchive directory. Includes top-level files (e.g., .gitignore, README.md,
-# usage.py, setup.py) and the txtarchive/txtarchive subdirectory (e.g., __init__.py, header.py).
-
-prompt: I want to create an archive of the txtarchive package.
-reponse: # Create the standard archive
+# Standard Archiving (for later unpacking)
+# Archive the txtarchive package (Python, Markdown, YAML files)
+# Incorporates the Python package structure of having an outer txtarchive directory and an inner txtarchive directory
 python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" \
-  --file_types .py .md .yaml
+    --file_types .py .md .yaml \
+    --root-files .gitignore setup.py
 
-prompt: I want to create an archive of the config directory
-reponse: python -m txtarchive archive "config" "config/config-LLM-archive.txt" --file_types .yaml
+# Unpack the archive
+python -m txtarchive unpack "txtarchive/txtarchive.txt" "extracted_txtarchive" --replace_existing
 
-python -m txtarchive archive "txtarchive" "txtarchive/txtarchive-llm-friendly.txt" \
-  --file_types .py .md .yaml \
-  --llm-friendly \
-  --split-output \
-  --split-output-dir "txtarchive/split_txtarchive"
+# Archive lhn package with subdirectories
+# Note: Ensure archive uses forward slashes (e.g., lhn/cohort.py) to create correct subdirectories
+python -m txtarchive archive "lhn" "lhn/lhn.txt" \
+    --file_types .py .md .yaml \
+    --root-files requirements.txt setup.py environment_spark.yaml environment_archive_env.yaml
 
-# a not LLM friendly version
-python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" \
-  --file_types .py .md .yaml \
-  --file_prefixes .gitignore 
+# Unpack the lhn archive
+python -m txtarchive unpack "lhn.txt" "lhn" --replace_existing
 
-# To unpack the archive later:
-python -m txtarchive unpack "txtarchive.txt" "txtarchive" --replace_existing
+# LLM-Friendly Archiving (single file)
+# Archive lhn package for LLM use (Python files, no subdirectories)
+python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
+    --file_types .py \
+    --no-subdirectories \
+    --llm-friendly \
+    --extract-code-only
 
-# python -m txtarchive unpack "txtarchive/txtarchive-llm-friendly.txt" "extracted_txtarchive"
-```
+# LLM-Friendly Archiving (split output)
+# Archive SickleCell notebooks for LLM use with split output
+python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" \
+    --file_types .ipynb .yaml \
+    --no-subdirectories \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --split-output-dir "split_SickleCell"
 
-prompt: I want to us LLM create create a project (directory) of code that will create an analsysis
-reponse:
-(reponse needs work to improve and make functional)
-  Command to streamline LLM interaction
-  This could call an LLM API (e.g., via openai or huggingface), pass the study plan and lhn archive, and save the generated archive.
-    python -m txtarchive generate <study_plan> <lhn_archive> <output_archive>
+# LLM-Friendly Archiving with File Prefixes
+# Archive specific SickleCell notebooks for LLM use (selected by prefix)
+python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" \
+    --file_types .ipynb \
+    --no-subdirectories \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --file_prefixes 011 015
 
-    python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" --file_types .py --no-subdirectories --llm-friendly --split-output --summarize
-    echo "Analyze diabetes data" > study.txt
-    python -m txtarchive generate "study.txt" "lhn-llm-friendly.txt" "study_archive.txt" --llm-model mock
-    python -m txtarchive extract-notebooks "study_archive.txt" "study_notebooks"
+# Archive specific lhn modules for LLM use (selected by prefix)
+python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
+    --file_types .py \
+    --no-subdirectories \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --split-output-dir "split_lhn" \
+    --file_prefixes extract resource
+
+# Extract Notebooks from LLM-Friendly Archive
+# Extract notebooks from a split archive
+python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks" --replace_existing
+
+# Archive Config Directory (YAML files)
+python -m txtarchive archive "config" "config/config-LLM-archive.txt" \
+    --file_types .yaml \
+    --llm-friendly \
+    --split-output \
+    --split-output-dir "config/split_config"
 """
 
     parser = argparse.ArgumentParser(
@@ -247,10 +188,10 @@ reponse:
     )
 
     generate_parser = subparsers.add_parser(
-    'generate',
-    help='Generate a txtarchive archive using an LLM',
-    description='Create an archive of Jupyter notebooks based on a study plan and lhn module.'
-)
+        'generate',
+        help='Generate a txtarchive archive using an LLM',
+        description='Create an archive of Jupyter notebooks based on a study plan and lhn module.'
+    )
     generate_parser.add_argument(
         'study_plan_path',
         type=str,
@@ -368,10 +309,3 @@ reponse:
 
 if __name__ == "__main__":
     main()
-
-# the end
-
-
-
-
-    
