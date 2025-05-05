@@ -14,14 +14,25 @@ def main():
 Examples:
 
 # Standard Archiving (for later unpacking)
+
 # Archive the txtarchive package (Python, Markdown, YAML files)
 # Incorporates the Python package structure of having an outer txtarchive directory and an inner txtarchive directory
 python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" \
     --file_types .py .md .yaml \
     --root-files .gitignore setup.py
 
-# Unpack the archive
+# Unpack the txtarchive archive
 python -m txtarchive unpack "txtarchive/txtarchive.txt" "extracted_txtarchive" --replace_existing
+
+# Archive the update files
+python -m txtarchive archive "shell" "shell/shell.txt" \
+    --file_types .py .md .yaml \
+    --no-subdirectories \
+    --file_types .sh .txt \
+    --file_prefixes claude-update-lhn requirement
+
+# Unpack shell files
+python -m txtarchive unpack "shell.txt" "shell" --replace_existing
 
 # Archive lhn package with subdirectories
 # Note: Ensure archive uses forward slashes (e.g., lhn/cohort.py) to create correct subdirectories
