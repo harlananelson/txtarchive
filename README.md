@@ -1,19 +1,4 @@
-Since you’re the sole user of the `txtarchive` package and have added features like `--split-output` and `extract-notebooks`, creating a `README.md` is a smart move to document the package’s purpose, installation, usage, and key commands—especially with the examples now included in the CLI help. A `README.md` serves as a centralized reference, complementing the inline help you added to `__main__.py`. It’s particularly useful for jogging your memory about the package’s capabilities, setup, or specific workflows (e.g., archiving Jupyter notebooks for LLMs or extracting `.ipynb` files), and it can be expanded later if you decide to share the package.
 
-Given your usage patterns (e.g., archiving `.ipynb` and `.py` files, LLM-friendly formats, splitting large archives, extracting notebooks), the `README.md` should be concise, practical, and tailored to your needs. It should cover:
-- What the package does.
-- How to install it.
-- Key commands with examples (mirroring or expanding on the CLI help).
-- Notes on specific features (e.g., handling split archives).
-- Any setup or dependency details.
-
-Below, I’ll propose a `README.md` that aligns with your package’s current state, reflects the input -> output argument order (e.g., `archive_file_path output_directory` for `extract-notebooks`), and includes examples from your `__main__.py` comments and recent commands. I’ll keep it in Markdown format for clarity and portability.
-
----
-
-### Proposed `README.md`
-
-```markdown
 # txtarchive
 
 A Python utility for archiving text files (e.g., `.py`, `.ipynb`, `.yaml`) into a single text file and extracting them back. Designed for creating LLM-friendly archives of Jupyter notebooks (without metadata) and reconstructing `.ipynb` files from those archives. Supports splitting large archives for LLM input limits.
@@ -299,5 +284,3 @@ The proposed `README.md` documents `txtarchive`’s purpose, installation, and u
    python -m txtarchive --help
    python -m txtarchive extract-notebooks "SickleCell_ADSCreationLLM.txt" "extracted_notebooks"
    ```
-
-The `README.md` complements the CLI help, providing a standalone reference for your package. If you want to tweak examples, add sections (e.g., troubleshooting), or sync it differently with the help text, let me know!
