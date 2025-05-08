@@ -24,6 +24,18 @@ python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" \
 # Unpack the txtarchive archive
 python -m txtarchive unpack "txtarchive/txtarchive.txt" "extracted_txtarchive" --replace_existing
 
+# Archive Config Directory (YAML files)
+python -m txtarchive archive "txtarchive" "txtarchive/txtarchive-LLM-archive.txt" \
+    --file_types .py \
+    --llm-friendly \
+    --split-output \
+    --split-output-dir "txtarchive/split_txtarchive" \
+    --root-files README.md setup.py
+
+python -m txtarchive archive "txtarchive" "txtarchive/txtarchive-archive.txt" \
+    --file_types .py .md .yaml \
+    --root-files README.md setup.py environment_spark.yaml environment_archive_env.yaml
+
 # Archive the update files
 python -m txtarchive archive "shell" "shell/shell.txt" \
     --file_types .py .md .yaml \
@@ -44,18 +56,36 @@ python -m txtarchive archive "lhn" "lhn/lhn.txt" \
 python -m txtarchive unpack "lhn.txt" "lhn" --replace_existing
 
 # LLM-Friendly Archiving (single file)
-# Archive lhn package for LLM use (Python files, no subdirectories)
+# Archive lhn package for LLM use (Python files)
 python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
     --file_types .py \
-    --no-subdirectories \
     --llm-friendly \
-    --extract-code-only
+    --split-output \
+    --root-files requirements.txt setup.py environment_spark.yaml \
+    --split-output-dir "lhn/split_archive"
 
+# LLM-Friendly Archiving (single file)
+# Archive lhn package for LLM use (Python files)
+python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
+    --file_types .py \
+    --llm-friendly \
+    --split-output \
+    --no-subdirectories \
+    --split-output-dir "lhn/split_archive" 
+    --file_prefixes __init__ header extract resources\
+
+python -m txtarchive archive "lhn/lhn" "lhn-ADS-llm-friendly.txt" \
+    --file_types .py \
+    --llm-friendly \
+    --split-output \
+    --no-subdirectories \
+    --split-output-dir "lhn/split_archive_ADS" \
+    --file_prefixes __init__ header resource extract listTable metadata_functions metaTable_module spark_query statisticalSummary query data_display plot cohort spark_utils
+    
 # LLM-Friendly Archiving (split output)
 # Archive SickleCell notebooks for LLM use with split output
 python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" \
     --file_types .ipynb .yaml \
-    --no-subdirectories \
     --llm-friendly \
     --extract-code-only \
     --split-output \
@@ -69,7 +99,32 @@ python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" \
     --llm-friendly \
     --extract-code-only \
     --split-output \
-    --file_prefixes 011 015
+    --file_prefixes 011 015 016 017\
+    --split-output-dir "split_SickleCell"
+
+python -m txtarchive archive "SickleCell" "SickleCell_allLLM.txt" \
+    --file_types .ipynb \
+    --no-subdirectories \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --split-output-dir "split_SickleCellall"
+
+python -m txtarchive archive "SCDCernerProject" "SickleCell_allLLM.txt" \
+    --file_types .ipynb \
+    --no-subdirectories \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --split-output-dir "split_SickleCellall"
+
+python -m txtarchive archive "SickleCell" "SickleCell/SickleCell_allLLM.txt" \
+    --file_types .ipynb \
+    --no-subdirectories \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --split-output-dir "split_SickleCellall"
 
 # Archive specific lhn modules for LLM use (selected by prefix)
 python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
