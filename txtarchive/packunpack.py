@@ -1,8 +1,7 @@
 import json
 from pathlib import Path
 from .header import logger
-from datetime import datetime, timedelta, date, time #example
-
+from datetime import datetime
 
 def read_notebook(notebook_path):
     """
@@ -18,13 +17,12 @@ def read_notebook(notebook_path):
         with notebook_path.open("r", encoding="utf-8", errors="replace") as file:
             notebook = json.load(file)
         return notebook
-    except json.JSONDecoderError as e:
+    except json.JSONDecodeError as e:
         logger.error(f"Error reading {notebook_path}: {e}")
         return None
     except Exception as e:
         logger.error(f"Error reading {notebook_path}: {e}")
         return None
-
 
 def remove_outputs_from_code_cells(notebook):
     """
@@ -41,7 +39,6 @@ def remove_outputs_from_code_cells(notebook):
             cell["outputs"] = []
     return notebook
 
-
 def strip_outputs_from_ipynb(file_path):
     """
     Remove the output from a Jupyter notebook and preserve only the code.
@@ -53,7 +50,6 @@ def strip_outputs_from_ipynb(file_path):
         str: The notebook content with outputs stripped as a JSON string.
     """
     try:
-        # Ensure UTF-8 encoding with error handling
         with file_path.open("r", encoding="utf-8", errors="replace") as file:
             notebook = json.load(file)
         for cell in notebook.get("cells", []):
@@ -63,7 +59,6 @@ def strip_outputs_from_ipynb(file_path):
     except Exception as e:
         logger.error(f"Error processing {file_path}: {e}")
         return None
-
 
 def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py", ".r"]):
     """
@@ -79,10 +74,8 @@ def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py",
             and directory in path.parents
         ):
             content = None
-            # Get relative path from the base directory for unique identification
             rel_path = path.relative_to(directory)
             
-            # Special handling for __init__.py files
             is_init_file = path.name == "__init__.py"
             if is_init_file:
                 logger.info(f"Found __init__.py file at {path}, attempting to read...")
@@ -96,11 +89,11 @@ def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py",
             elif path.suffix in file_types:
                 logger.info("Processing %s", path.name)
                 try:
-                    with path.open("r", encoding="utf-8") as file:  # Explicitly use utf-8 encoding
+                    with path.open("r", encoding="utf-8") as file:
                         content = file.read()
                         if is_init_file:
                             logger.info(f"Successfully read __init__.py, content length: {len(content)}")
-                            logger.info(f"First 50 characters: {repr(content[:50])}")  # Debug: see what's in the content
+                            logger.info(f"First 50 characters: {repr(content[:50])}")
                 except FileNotFoundError:
                     logger.error("File not found: %s", path)
                     continue
@@ -111,19 +104,15 @@ def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py",
             if content is not None:
                 if is_init_file:
                     logger.info(f"Adding __init__.py content to archive, path: {rel_path}")
-                
-                # Use relative path in the filename identifier to make it unique
                 all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
             elif is_init_file:
                 logger.warning(f"No content was obtained from __init__.py at {path}")
 
-    # Add debug: Log the total size of all_contents before writing
     logger.info(f"Total content size to write: {len(all_contents)} bytes")
     
-    with combined_file_path.open("w", encoding="utf-8") as file:  # Explicitly use utf-8 encoding
+    with combined_file_path.open("w", encoding="utf-8") as file:
         file.write(all_contents)
     logger.info("Files concatenated into: %s", combined_file_path)
-
 
 def unpack_files(output_directory, combined_file_path, replace_existing=False):
     """
@@ -157,14 +146,11 @@ def unpack_files(output_directory, combined_file_path, replace_existing=False):
     for section in sections:
         try:
             filename, content = section.split("\n---\n", 1)
-            # Normalize filename: replace backslashes (single or double) with forward slashes
             normalized_filename = filename.strip().replace('\\\\', '/').replace('\\', '/')
             logger.debug(f"Normalized filename: {normalized_filename}")
             
-            # Handle relative paths in the filename
             output_path = output_directory / normalized_filename
             
-            # Create parent directories if they don't exist
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
             if output_path.exists() and not replace_existing:
@@ -182,7 +168,7 @@ def run_concat_no_subdirs(
     current_directory,
     combined_files="combined_files.txt",
     file_types=[".yaml", ".py", ".r"],
-    file_prefixes=None,  # New parameter for filtering by prefix
+    file_prefixes=None,
 ):
     """
     Concatenate files of specified types in just the top-level directory (no subdirectories).
@@ -191,7 +177,7 @@ def run_concat_no_subdirs(
         current_directory (Path): Directory to search for files.
         combined_files (Path): Path to the output file.
         file_types (list): List of file extensions to include.
-        file_prefixes (list): List of prefixes to filter filenames (default is None, which includes all files).
+        file_prefixes (list): List of prefixes to filter filenames (default is None).
     """
     if isinstance(current_directory, str):
         current_directory = Path(current_directory)
@@ -203,9 +189,7 @@ def run_concat_no_subdirs(
     )
     all_contents = ""
 
-    # Use glob instead of rglob to only search the top level
     for path in current_directory.glob("*"):
-        # Check if the file matches the prefix filter (if any)
         if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
             continue
             
@@ -234,7 +218,6 @@ def run_concat_no_subdirs(
         file.write(all_contents)
     logger.info("Files concatenated into: %s", combined_files)
 
-
 def run_concat(
     current_directory,
     combined_files="combined_files.txt",
@@ -255,7 +238,6 @@ def run_concat(
 
     concatenate_files(current_directory, combined_files, file_types=file_types)
 
-
 def run_unpack(output_directory, combined_file_path, replace_existing=False):
     """
     Wrapper for the `unpack_files` function.
@@ -272,8 +254,6 @@ def run_unpack(output_directory, combined_file_path, replace_existing=False):
 
     unpack_files(output_directory, combined_file_path, replace_existing=replace_existing)
     logger.info("Files have been unpacked into: %s", output_directory)
-
-
 
 def archive_subdirectories(
     parent_directory,
@@ -317,7 +297,6 @@ def archive_subdirectories(
     combine_all_archives(
         parent_directory, combined_archive_dir, combined_archive_name, directories
     )
-
 
 def combine_all_archives(
     parent_directory,
@@ -368,7 +347,6 @@ def combine_all_archives(
         file.write(all_archives_content)
     logger.info("All archives combined into: %s", combined_archive_path)
 
-
 def unpack_all_archives(
     parent_directory, combined_archive_name="all_combined_archives.txt", overwrite=True
 ):
@@ -403,8 +381,7 @@ def unpack_all_archives(
         unpack_files(archive_file_path, directory_path)
         logger.info("Unpacked archive in: %s", directory_path)
 
-
-def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", ".r", ".ipynb", ".sh"], file_prefixes=None, include_subdirectories=True):
+def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", ".r", ".ipynb", ".qmd"], file_prefixes=None, include_subdirectories=True):
     """
     Create a single text file containing all code from the specified directory,
     formatted in a way that's ideal for input to an LLM.
@@ -413,7 +390,7 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
         directory (Path): Directory to search for files.
         output_file_path (Path): Path to the output file.
         file_types (list): List of file extensions to include.
-        file_prefixes (list): List of filename prefixes to include (default is None, which includes all files).
+        file_prefixes (list): List of filename prefixes to include (default is None).
         include_subdirectories (bool): Whether to traverse subdirectories (default is True).
     """
     if isinstance(directory, str):
@@ -424,15 +401,12 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
     logger.info(f"Creating LLM-friendly archive from directory: {directory}")
     all_contents = ""
     
-    # Add a header with information about the archive
     all_contents += f"# LLM-FRIENDLY CODE ARCHIVE\n"
     all_contents += f"# Generated from: {directory}\n"
     all_contents += f"# Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
-    # Track processed files for the table of contents
     file_list = []
     
-    # First pass: collect all files to process
     if include_subdirectories:
         file_iterator = directory.rglob("*")
     else:
@@ -443,27 +417,22 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
             not path.name.startswith((".", "#")) and 
             path.suffix in file_types):
             
-            # Check if the file matches the prefix filter (if any)
             if file_prefixes and not any(path.name.startswith(prefix) for prefix in file_prefixes):
                 continue
                 
             rel_path = path.relative_to(directory)
             file_list.append((rel_path, path))
     
-    # Sort files by relative path for better organization
     file_list.sort(key=lambda x: str(x[0]))
     
-    # Generate table of contents
     all_contents += "# TABLE OF CONTENTS\n"
     for idx, (rel_path, _) in enumerate(file_list, 1):
         all_contents += f"{idx}. {rel_path}\n"
     all_contents += "\n\n"
     
-    # Second pass: process and add file contents
     for idx, (rel_path, path) in enumerate(file_list, 1):
         logger.info(f"Processing {path.name}")
         
-        # Add a clear section header for each file
         all_contents += f"{'#' * 80}\n"
         all_contents += f"# FILE {idx}: {rel_path}\n"
         all_contents += f"{'#' * 80}\n\n"
@@ -471,24 +440,27 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
         content = None
         
         if path.suffix == ".ipynb":
-            # For Jupyter notebooks, extract only the code cells without outputs
             try:
                 with path.open("r", encoding="utf-8", errors="replace") as file:
                     notebook = json.load(file)
                 
-                # Extract code from each cell
                 for cell_idx, cell in enumerate(notebook.get("cells", []), 1):
                     if cell["cell_type"] == "code":
                         cell_content = "".join(cell.get("source", []))
-                        if cell_content.strip():  # Only include non-empty cells
+                        if cell_content.strip():
                             all_contents += f"# Cell {cell_idx}\n"
+                            all_contents += cell_content
+                            all_contents += "\n\n"
+                    elif cell["cell_type"] == "markdown":
+                        cell_content = "".join(cell.get("source", []))
+                        if cell_content.strip():
+                            all_contents += f"# Markdown Cell {cell_idx}\n"
                             all_contents += cell_content
                             all_contents += "\n\n"
             except Exception as e:
                 logger.error(f"Error processing notebook {path}: {e}")
                 all_contents += f"# Error processing notebook: {e}\n\n"
         else:
-            # For regular code files, include the entire content
             try:
                 with path.open("r", encoding="utf-8", errors="replace") as file:
                     content = file.read()
@@ -498,7 +470,6 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
                 logger.error(f"Error reading {path}: {e}")
                 all_contents += f"# Error reading file: {e}\n\n"
     
-    # Write the combined content to the output file
     with output_file_path.open("w", encoding="utf-8") as file:
         file.write(all_contents)
     
@@ -658,14 +629,166 @@ def archive_files(
     return output_file_path
 
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
-    # [Unchanged; see previous responses for implementation]
-    pass
+    """
+    Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files.
+
+    Args:
+        archive_file_path (Path): Path to the LLM-friendly archive file or directory of split files.
+        output_directory (Path): Directory to save the reconstructed .ipynb files.
+        replace_existing (bool): Whether to overwrite existing files (default: False).
+    """
+    archive_file_path = Path(archive_file_path)
+    output_directory = Path(output_directory)
+    
+    logger.info(f"Extracting notebooks to {output_directory}")
+    
+    content = ""
+    if archive_file_path.is_dir():
+        logger.info(f"Processing split files in directory: {archive_file_path}")
+        split_files = sorted(archive_file_path.glob("*.txt"), key=lambda x: x.name)
+        if not split_files:
+            logger.error(f"No split files found in {archive_file_path}")
+            return
+        for split_file in split_files:
+            logger.info(f"Reading split file: {split_file}")
+            try:
+                with split_file.open("r", encoding="utf-8") as file:
+                    split_content = file.read()
+                    lines = split_content.splitlines()
+                    cleaned_lines = [
+                        line for line in lines
+                        if line.strip() not in ["<DOCUMENT>", "</DOCUMENT>"]
+                        and not line.startswith("# Part ")
+                    ]
+                    content += "\n".join(cleaned_lines) + "\n"
+            except Exception as e:
+                logger.error(f"Error reading split file {split_file}: {e}")
+                continue
+    else:
+        logger.info(f"Processing single archive: {archive_file_path}")
+        try:
+            with archive_file_path.open("r", encoding="utf-8") as file:
+                content = file.read()
+        except Exception as e:
+            logger.error(f"Error reading archive {archive_file_path}: {e}")
+            return
+    
+    if "TABLE OF CONTENTS" not in content:
+        logger.error("Archive missing TABLE OF CONTENTS; may be incomplete")
+        return
+    
+    output_directory.mkdir(parents=True, exist_ok=True)
+    
+    sections = content.split("################################################################################\n# FILE ")
+    if len(sections) < 2:
+        logger.warning(f"No notebook sections found in archive")
+        return
+    
+    for section in sections[1:]:
+        lines = section.split("\n", 2)
+        if len(lines) < 3:
+            logger.warning(f"Invalid section format: {section[:50]}...")
+            continue
+            
+        file_info = lines[0].strip()
+        try:
+            file_num, filename = file_info.split(": ", 1)
+            filename = filename.strip()
+            if not filename.endswith(".ipynb"):
+                logger.warning(f"Skipping non-notebook file: {filename}")
+                continue
+        except ValueError:
+            logger.warning(f"Invalid file info format: {file_info}")
+            continue
+            
+        content = lines[2]
+        
+        output_path = output_directory / filename
+        if output_path.exists() and not replace_existing:
+            output_path = output_path.with_stem(f"{output_path.stem}_copy")
+            logger.info(f"File exists, using {output_path.name}")
+            
+        notebook = {
+            "cells": [],
+            "metadata": {
+                "kernelspec": {
+                    "display_name": "Python 3",
+                    "language": "python",
+                    "name": "python3"
+                },
+                "language_info": {
+                    "name": "python"
+                }
+            },
+            "nbformat": 4,
+            "nbformat_minor": 5
+        }
+        
+        if content.strip().startswith("{"):
+            try:
+                notebook = json.loads(content)
+                logger.info(f"Restored JSON notebook: {filename}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in {filename}: {e}")
+                continue
+        else:
+            cells = []
+            current_cell = []
+            cell_number = None
+            
+            for line in content.splitlines():
+                if line.startswith("# Cell "):
+                    if current_cell:
+                        cells.append({
+                            "cell_type": "code",
+                            "source": current_cell,
+                            "metadata": {},
+                            "execution_count": None,
+                            "outputs": []
+                        })
+                        current_cell = []
+                    try:
+                        cell_number = int(line.split("# Cell ")[1])
+                    except (IndexError, ValueError):
+                        logger.warning(f"Invalid cell marker in {filename}: {line}")
+                    continue
+                current_cell.append(line + "\n")
+                
+            if current_cell:
+                cells.append({
+                    "cell_type": "code",
+                    "source": current_cell,
+                    "metadata": {},
+                    "execution_count": None,
+                    "outputs": []
+                })
+                
+            notebook["cells"] = cells
+            logger.info(f"Reconstructed {len(cells)} code cells for {filename}")
+        
+        try:
+            with output_path.open("w", encoding="utf-8") as file:
+                json.dump(notebook, file, indent=2)
+            logger.info(f"Created notebook: {output_path}")
+        except Exception as e:
+            logger.error(f"Error writing {output_path}: {e}")
 
 def run_extract_notebooks(archive_file_path, output_directory, replace_existing=False):
+    """
+    Wrapper for extract_notebooks_to_ipynb.
+    """
     extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing)
     logger.info(f"Notebooks extracted to: {output_directory}")
 
 def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing=False):
+    """
+    Extract Jupyter notebooks and Quarto files from an LLM-friendly text archive.
+
+    Args:
+        archive_file_path (Path): Path to the LLM-friendly archive file or directory of split files.
+        output_directory (Path): Directory to save the reconstructed .ipynb and .qmd files.
+        replace_existing (bool): Whether to overwrite existing files (default: False).
+    """
     archive_file_path = Path(archive_file_path)
     output_directory = Path(output_directory)
     
@@ -789,13 +912,41 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
                         cell_number = int(line.split("# Markdown Cell ")[1])
                     except (IndexError, ValueError):
                         logger.warning(f"Invalid cell marker in {filename}: {line}")
+                    continue
+                current_cell.append(line + "\n")
+                
+            if current_cell:
+                cells.append({
+                    "cell_type": cell_type,
+                    "source": current_cell,
+                    "metadata": {},
+                    "execution_count": None,
+                    "outputs": []
+                })
+                
+            notebook["cells"] = cells
+            logger.info(f"Reconstructed {len(cells)} cells for {filename}")
+            
+            try:
+                with output_path.open("w", encoding="utf-8") as file:
+                    json.dump(notebook, file, indent=2)
+                logger.info(f"Created notebook: {output_path}")
+            except Exception as e:
+                logger.error(f"Error writing {output_path}: {e}")
+        else:  # .qmd
+            try:
+                with output_path.open("w", encoding="utf-8") as file:
+                    file.write(content)
+                logger.info(f"Created Quarto file: {output_path}")
+            except Exception as e:
+                logger.error(f"Error writing {output_path}: {e}")
 
-def run_extract_notebooks(archive_file_path, output_directory, replace_existing=False):
+def run_extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing=False):
     """
-    Wrapper for extract_notebooks_to_ipynb.
+    Wrapper for extract_notebooks_and_quarto.
     """
-    extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing)
-    logger.info(f"Notebooks extracted to: {output_directory}")
+    extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing)
+    logger.info(f"Notebooks and Quarto files extracted to: {output_directory}")
 
 def validate_archive(archive_file_path):
     with Path(archive_file_path).open("r", encoding="utf-8") as file:
@@ -808,15 +959,10 @@ def validate_archive(archive_file_path):
         return False
     return True
 
-# packunpack.py
-from pathlib import Path
-from datetime import datetime
-import logging
-
-logger = logging.getLogger(__name__)
-
 def generate_archive(study_plan_path, lhn_archive_path, output_archive_path, llm_model="mock"):
-    """Generate a txtarchive archive using an LLM."""
+    """
+    Generate a txtarchive archive using an LLM.
+    """
     with Path(study_plan_path).open("r", encoding="utf-8") as f:
         study_plan = f.read()
     
@@ -834,7 +980,7 @@ def generate_archive(study_plan_path, lhn_archive_path, output_archive_path, llm
                 lhn_content += "\n".join(lines) + "\n"
     else:
         with lhn_path.open("r", encoding="utf-8") as f:
-                lhn_content = f.read()
+            lhn_content = f.read()
     
     prompt = (
         "You are a code generation assistant. The lhn module is a Python library for "
@@ -867,7 +1013,6 @@ def generate_archive(study_plan_path, lhn_archive_path, output_archive_path, llm
         "Output only the archive text."
     )
     
-    # Mock LLM call (replace with real API, e.g., OpenAI)
     archive_content = mock_llm_call(prompt) if llm_model == "mock" else call_llm(prompt, llm_model)
     
     with Path(output_archive_path).open("w", encoding="utf-8") as f:
@@ -875,7 +1020,9 @@ def generate_archive(study_plan_path, lhn_archive_path, output_archive_path, llm
     logger.info(f"Generated archive: {output_archive_path}")
 
 def mock_llm_call(prompt):
-    """Mock LLM response for testing."""
+    """
+    Mock LLM response for testing.
+    """
     return (
         "# LLM-FRIENDLY CODE ARCHIVE\n"
         "# Generated from: study\n"
@@ -902,5 +1049,7 @@ def mock_llm_call(prompt):
     )
 
 def call_llm(prompt, llm_model):
-    """Placeholder for real LLM API call."""
+    """
+    Placeholder for real LLM API call.
+    """
     raise NotImplementedError("Real LLM integration not implemented.")

@@ -19,7 +19,9 @@ python -m txtarchive archive "lhnmetadata" "lhnmetadata/lhnmetadata.txt" \
 # Extract notebooks and Quarto files
 python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" "lhynmetadata" --replace_existing
 
-# [Other examples unchanged]
+# Standard archive with TOC
+python -m txtarchive archive "lhnmetadata" "lhnmetadata/lhnmetadata.txt" \
+    --file_types .ipynb --no-subdirectories
 """
 
     parser = argparse.ArgumentParser(
@@ -105,7 +107,89 @@ python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" 
         help='Specific subdirectories to include (e.g., lhn)'
     )
 
-    # [Unpack, generate, archive_subdirectories parsers unchanged]
+    # Unpack Command
+    unpack_parser = subparsers.add_parser(
+        'unpack',
+        help='Unpack a text archive into individual files',
+        description='Extract files from a text archive into a directory.'
+    )
+    unpack_parser.add_argument(
+        'combined_file_path',
+        type=str,
+        help='Path to the text archive file (input)'
+    )
+    unpack_parser.add_argument(
+        'output_directory',
+        type=str,
+        help='Directory to save the unpacked files (output)'
+    )
+    unpack_parser.add_argument(
+        '--replace_existing',
+        action='store_true',
+        help='Replace existing files in the output directory'
+    )
+
+    # Generate Command
+    generate_parser = subparsers.add_parser(
+        'generate',
+        help='Generate a txtarchive archive using an LLM',
+        description='Create an archive of Jupyter notebooks based on a study plan and lhn module.'
+    )
+    generate_parser.add_argument(
+        'study_plan_path',
+        type=str,
+        help='Path to the study plan file (input)'
+    )
+    generate_parser.add_argument(
+        'lhn_archive_path',
+        type=str,
+        help='Path to the lhn module archive file or split directory (input)'
+    )
+    generate_parser.add_argument(
+        'output_archive_path',
+        type=str,
+        help='Path to the generated archive file (output)'
+    )
+    generate_parser.add_argument(
+        '--llm-model',
+        type=str,
+        default='mock',
+        help='LLM model to use (default: mock)'
+    )
+
+    # Archive Subdirectories Command
+    archive_subs_parser = subparsers.add_parser(
+        'archive_subdirectories',
+        help='Archive subdirectories into separate text files',
+        description='Create archives for each subdirectory of a parent directory.'
+    )
+    archive_subs_parser.add_argument(
+        'parent_directory',
+        type=str,
+        help='Parent directory containing subdirectories to archive (input)'
+    )
+    archive_subs_parser.add_argument(
+        '--directories',
+        nargs='+',
+        help='Specific subdirectories to archive (default: all)'
+    )
+    archive_subs_parser.add_argument(
+        '--combined_archive_dir',
+        type=str,
+        help='Directory for combined archive files (default: parent directory)'
+    )
+    archive_subs_parser.add_argument(
+        '--combined_archive_name',
+        type=str,
+        default='all_combined_archives.txt',
+        help='Name of the combined archive file (default: all_combined_archives.txt)'
+    )
+    archive_subs_parser.add_argument(
+        '--file_types',
+        nargs='+',
+        default=['.yaml', '.py', '.r', '.ipynb', '.qmd'],
+        help='File extensions to include (e.g., .yaml .py .qmd)'
+    )
 
     # Extract Notebooks Command
     extract_nb_parser = subparsers.add_parser(
