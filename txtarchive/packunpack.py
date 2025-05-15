@@ -789,3 +789,118 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
                         cell_number = int(line.split("# Markdown Cell ")[1])
                     except (IndexError, ValueError):
                         logger.warning(f"Invalid cell marker in {filename}: {line}")
+
+def run_extract_notebooks(archive_file_path, output_directory, replace_existing=False):
+    """
+    Wrapper for extract_notebooks_to_ipynb.
+    """
+    extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing)
+    logger.info(f"Notebooks extracted to: {output_directory}")
+
+def validate_archive(archive_file_path):
+    with Path(archive_file_path).open("r", encoding="utf-8") as file:
+        content = file.read()
+    if "TABLE OF CONTENTS" not in content:
+        logger.error("Archive missing TABLE OF CONTENTS")
+        return False
+    if not content.split("################################################################################\n# FILE ")[1:]:
+        logger.error("No notebook sections found")
+        return False
+    return True
+
+# packunpack.py
+from pathlib import Path
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+def generate_archive(study_plan_path, lhn_archive_path, output_archive_path, llm_model="mock"):
+    """Generate a txtarchive archive using an LLM."""
+    with Path(study_plan_path).open("r", encoding="utf-8") as f:
+        study_plan = f.read()
+    
+    lhn_content = ""
+    lhn_path = Path(lhn_archive_path)
+    if lhn_path.is_dir():
+        for split_file in sorted(lhn_path.glob("*.txt")):
+            with split_file.open("r", encoding="utf-8") as f:
+                split_content = f.read()
+                lines = [
+                    line for line in split_content.splitlines()
+                    if line.strip() not in ["<DOCUMENT>", "</DOCUMENT>"]
+                    and not line.startswith("# Part ")
+                ]
+                lhn_content += "\n".join(lines) + "\n"
+    else:
+        with lhn_path.open("r", encoding="utf-8") as f:
+                lhn_content = f.read()
+    
+    prompt = (
+        "You are a code generation assistant. The lhn module is a Python library for "
+        "healthcare analytics, with functions for data loading, analysis, and visualization.\n\n"
+        f"**Study Plan**: {study_plan}\n\n"
+        f"**lhn Module Archive**:\n{lhn_content}\n\n"
+        "Generate a txtarchive-compatible archive with Jupyter notebooks implementing the "
+        "study plan using lhn functions. Use this format:\n\n"
+        "# LLM-FRIENDLY CODE ARCHIVE\n"
+        "# Generated from: study\n"
+        f"# Date: {datetime.now().strftime('%Y-%m-%d')}\n"
+        "# TABLE OF CONTENTS\n"
+        "1. data_cleaning.ipynb\n"
+        "2. analysis.ipynb\n"
+        "\n"
+        "################################################################################\n"
+        "# FILE 1: data_cleaning.ipynb\n"
+        "################################################################################\n"
+        "# Cell 1\n"
+        "<code>\n"
+        "# Cell 2\n"
+        "<code>\n"
+        "\n"
+        "################################################################################\n"
+        "# FILE 2: analysis.ipynb\n"
+        "################################################################################\n"
+        "# Cell 1\n"
+        "<code>\n"
+        "\n"
+        "Output only the archive text."
+    )
+    
+    # Mock LLM call (replace with real API, e.g., OpenAI)
+    archive_content = mock_llm_call(prompt) if llm_model == "mock" else call_llm(prompt, llm_model)
+    
+    with Path(output_archive_path).open("w", encoding="utf-8") as f:
+        f.write(archive_content)
+    logger.info(f"Generated archive: {output_archive_path}")
+
+def mock_llm_call(prompt):
+    """Mock LLM response for testing."""
+    return (
+        "# LLM-FRIENDLY CODE ARCHIVE\n"
+        "# Generated from: study\n"
+        "# Date: 2025-04-15\n"
+        "# TABLE OF CONTENTS\n"
+        "1. data_cleaning.ipynb\n"
+        "2. analysis.ipynb\n"
+        "\n"
+        "################################################################################\n"
+        "# FILE 1: data_cleaning.ipynb\n"
+        "################################################################################\n"
+        "# Cell 1\n"
+        "import lhn.preprocessing\n"
+        'data = lhn.preprocessing.load_data("data.csv")\n'
+        "# Cell 2\n"
+        "clean_data = lhn.preprocessing.clean_data(data)\n"
+        "\n"
+        "################################################################################\n"
+        "# FILE 2: analysis.ipynb\n"
+        "################################################################################\n"
+        "# Cell 1\n"
+        "import lhn.analytics\n"
+        "model = lhn.analytics.run_regression(clean_data)\n"
+    )
+
+def call_llm(prompt, llm_model):
+    """Placeholder for real LLM API call."""
+    raise NotImplementedError("Real LLM integration not implemented.")
