@@ -524,10 +524,11 @@ def archive_files(
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
     # Add default exclusions for build and .pytest_cache
     default_exclude_dirs = {"build", ".pytest_cache"}
-    exclude_dirs = set(exclude_dirs or []) | default_exclude_dirs  # Merge with defaults
-    root_files = set(root_files or [])  # Specific root files to include
-    include_subdirs = set(include_subdirs or [])  # Specific subdirs to include
-    processed_files = set()  # Track processed files to prevent duplicates
+    exclude_dirs = set(exclude_dirs or []) | default_exclude_dirs
+    root_files = set(root_files or [])
+    include_subdirs = set(include_subdirs or [])
+    processed_files = set()
+    file_list = []  # Track files for TOC in both modes
 
     logger.info(f"Archiving files from: {directory}")
     all_contents = ""
@@ -538,20 +539,16 @@ def archive_files(
         all_contents += "# LLM-FRIENDLY CODE ARCHIVE\n"
         all_contents += f"# Generated from: {directory}\n"
         all_contents += f"# Date: {creation_date}\n\n"
-        file_list = []
     else:
         all_contents += "# Standard Archive Format\n\n"
 
-    # Verify input directory exists
     if not directory.is_dir():
         logger.error(f"Input directory does not exist: {directory}")
         raise FileNotFoundError(f"Input directory does not exist: {directory}")
 
-    # Create output directory if it doesn't exist
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Ensured output directory exists: {output_file_path.parent}")
+    logger.info(f"Ensured output directory existsV2: {}".format(output_file_path.parent))
 
-    # Process root files explicitly
     for file_name in root_files:
         path = directory / file_name
         if not path.is_file():
@@ -565,47 +562,34 @@ def archive_files(
         try:
             with path.open("r", encoding="utf-8", errors="replace") as file:
                 content = file.read()
-            if llm_friendly:
-                file_list.append((rel_path, content))
-                processed_files.add(str(rel_path))  # Track as processed
-            else:
-                all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+            file_list.append((rel_path, content))  # Add to file_list
+            processed_files.add(str(rel_path))
         except Exception as e:
             logger.error(f"Error reading root file {path}: {e}")
             content = f"# Error reading file: {e}\n\n"
-            if llm_friendly:
-                file_list.append((rel_path, content))
-                processed_files.add(str(rel_path))
-            else:
-                all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+            file_list.append((rel_path, content))
+            processed_files.add(str(rel_path))
 
-    # Process files in directory and subdirectories
     file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
 
     for path in file_iterator:
-        # Skip files in excluded directories
         if include_subdirectories and any(parent.name in exclude_dirs for parent in path.parents):
             logger.info(f"Skipping file in excluded directory: {path}")
             continue
-        # Process files in root or all subdirs (if include_subdirs is empty) or specified subdirs
         rel_path = path.relative_to(directory)
         parent_dir = rel_path.parent.name if rel_path.parent != Path(".") else ""
         is_root_file = rel_path.parent == Path(".")
-        # Include all subdirs if include_subdirs is empty, otherwise check specific subdirs
         is_included_subdir = not include_subdirs or parent_dir in include_subdirs
         if not (is_root_file or (include_subdirectories and is_included_subdir)):
             logger.info(f"Skipping file not in root or included subdir: {path}")
             continue
         if path.is_file():
-            # Allow .gitignore explicitly
             is_gitignore = path.name == ".gitignore"
             if not (is_gitignore or (not path.name.startswith((".", "#")) and path.suffix in file_types)):
                 continue
-            # Skip root files already processed
             if is_root_file and path.name in root_files:
                 logger.info(f"Skipping already processed root file: {path}")
                 continue
-            # Skip files already processed
             if str(rel_path) in processed_files:
                 logger.info(f"Skipping already processed file: {path}")
                 continue
@@ -638,22 +622,24 @@ def archive_files(
                     content = f"# Error reading file: {e}\n\n"
 
             if content is not None:
-                if llm_friendly:
-                    file_list.append((rel_path, content))
-                    processed_files.add(str(rel_path))  # Track as processed
-                else:
-                    all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+                file_list.append((rel_path, content))
+                processed_files.add(str(rel_path))
 
+    # Generate TOC for both modes
+    file_list.sort(key=lambda x: str(x[0]))
+    all_contents += "# TABLE OF CONTENTS\n"
+    all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
+    all_contents += "\n\n"
+
+    # Write file contents
     if llm_friendly:
-        file_list.sort(key=lambda x: str(x[0]))
-        all_contents += "# TABLE OF CONTENTS\n"
-        all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
-        all_contents += "\n\n"
-
         for idx, (rel_path, content) in enumerate(file_list, 1):
             all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"
             all_contents += content
             all_contents += "\n\n"
+    else:
+        for rel_path, content in file_list:
+            all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
 
     with output_file_path.open("w", encoding="utf-8") as file:
         file.write(all_contents)
@@ -663,7 +649,7 @@ def archive_files(
     if split_output:
         from .split_files import split_file
         split_dir = Path(split_output_dir) if split_output_dir else output_file_path.parent / f"split_{output_file_path.stem}"
-        split_dir.mkdir(parents=True, exist_ok=True)  # Ensure split directory exists
+        split_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Ensured split output directory exists: {split_dir}")
         split_file(output_file_path, max_chars=max_chars, output_dir=split_dir)
         logger.info(f"Split files created in: {split_dir}")
