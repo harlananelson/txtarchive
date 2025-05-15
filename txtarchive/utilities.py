@@ -94,3 +94,43 @@ def archive_configuration_files():
 # parent_directory = '/path/to/Projects'
 # archive_selected_file_types(parent_directory)
 # archive_configuration_files()
+
+
+import os
+import re
+
+def replace_f_strings_in_file(filepath):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file:
+            content = file.read()
+
+        # Store original content for comparison to see if changes were made
+        original_content = content
+
+        # Replace F"..." with f"..."
+        # Using a regex to be a bit more specific:
+        # (?<![a-zA-Z0-9_]) ensures F is not part of another word (e.g. IF")
+        content = re.sub(r'(?<![a-zA-Z0-9_])F(")', r'f"', content)
+        content = re.sub(r'(?<![a-zA-Z0-9_])F(\')', r'f\'', content)
+
+        if content != original_content:
+            with open(filepath, 'w', encoding='utf-8') as file:
+                file.write(content)
+            print(f"Modified: {filepath}")
+        # else:
+        #     print(f"No changes needed: {filepath}")
+
+    except Exception as e:
+        print(f"Error processing file {filepath}: {e}")
+
+def process_directory(directory_path):
+    for root, _, files in os.walk(directory_path):
+        for filename in files:
+            if filename.endswith(".py"):
+                filepath = os.path.join(root, filename)
+                replace_f_strings_in_file(filepath)
+
+# Example usage:
+# Assuming your lhn package is in a directory named 'lhn'
+# in the same location as this script, or provide the full path.
+# process_directory("./lhn")

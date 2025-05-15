@@ -522,7 +522,6 @@ def archive_files(
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
-    # Add default exclusions for build and .pytest_cache
     default_exclude_dirs = {"build", ".pytest_cache"}
     exclude_dirs = set(exclude_dirs or []) | default_exclude_dirs
     root_files = set(root_files or [])
@@ -547,7 +546,7 @@ def archive_files(
         raise FileNotFoundError(f"Input directory does not exist: {directory}")
 
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Ensured output directory existsV2: {}".format(output_file_path.parent))
+    logger.info(f"Ensured output directory exists: {output_file_path.parent}")
 
     for file_name in root_files:
         path = directory / file_name
@@ -562,7 +561,7 @@ def archive_files(
         try:
             with path.open("r", encoding="utf-8", errors="replace") as file:
                 content = file.read()
-            file_list.append((rel_path, content))  # Add to file_list
+            file_list.append((rel_path, content))
             processed_files.add(str(rel_path))
         except Exception as e:
             logger.error(f"Error reading root file {path}: {e}")
@@ -625,13 +624,11 @@ def archive_files(
                 file_list.append((rel_path, content))
                 processed_files.add(str(rel_path))
 
-    # Generate TOC for both modes
     file_list.sort(key=lambda x: str(x[0]))
     all_contents += "# TABLE OF CONTENTS\n"
     all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
     all_contents += "\n\n"
 
-    # Write file contents
     if llm_friendly:
         for idx, (rel_path, content) in enumerate(file_list, 1):
             all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"

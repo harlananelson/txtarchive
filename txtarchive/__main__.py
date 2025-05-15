@@ -2,7 +2,7 @@
 import argparse
 import logging
 from importlib.metadata import version
-from txtarchive.packunpack import archive_files, run_unpack, archive_subdirectories, run_extract_notebooks
+from txtarchive.packunpack import archive_files, run_unpack, archive_subdirectories, run_extract_notebooks_and_quarto
 from .header import logger
 
 __version__ = version("txtarchive")
@@ -13,32 +13,24 @@ def main():
     epilog = """
 Examples:
 
-# Standard Archiving (for later unpacking)
+# unpack
+python -m txtarchive unpack "sparktables.txt" "SickleCell-AI" --replace_existing
 
-# Archive the txtarchive package (Python, Markdown, YAML files)
+# Standard Archiving (for later unpacking)
+# python -m txtarchive archive "lhnmetadata" "lhnmetadata.txt" --file_types .ipynb --no-subdirectories
+
+# Archive the txtarchive package (Python, Markdown, YAML, Quarto files)
 # Incorporates the Python package structure of having an outer txtarchive directory and an inner txtarchive directory
 python -m txtarchive archive "txtarchive" "txtarchive/txtarchive.txt" \
-    --file_types .py .md .yaml \
+    --file_types .py .md .yaml .qmd \
     --root-files .gitignore setup.py
 
 # Unpack the txtarchive archive
 python -m txtarchive unpack "txtarchive/txtarchive.txt" "extracted_txtarchive" --replace_existing
 
-# Archive Config Directory (YAML files)
-python -m txtarchive archive "txtarchive" "txtarchive/txtarchive-LLM-archive.txt" \
-    --file_types .py \
-    --llm-friendly \
-    --split-output \
-    --split-output-dir "txtarchive/split_txtarchive" \
-    --root-files README.md setup.py
-
-python -m txtarchive archive "txtarchive" "txtarchive/txtarchive-archive.txt" \
-    --file_types .py .md .yaml \
-    --root-files README.md setup.py environment_spark.yaml environment_archive_env.yaml
-
 # Archive the update files
 python -m txtarchive archive "shell" "shell/shell.txt" \
-    --file_types .py .md .yaml \
+    --file_types .py .md .yaml .qmd \
     --no-subdirectories \
     --file_types .sh .txt \
     --file_prefixes claude-update-lhn requirement
@@ -49,86 +41,44 @@ python -m txtarchive unpack "shell.txt" "shell" --replace_existing
 # Archive lhn package with subdirectories
 # Note: Ensure archive uses forward slashes (e.g., lhn/cohort.py) to create correct subdirectories
 python -m txtarchive archive "lhn" "lhn/lhn.txt" \
-    --file_types .py .md .yaml \
+    --file_types .py .md .yaml .qmd \
     --root-files requirements.txt setup.py environment_spark.yaml environment_archive_env.yaml
 
 # Unpack the lhn archive
 python -m txtarchive unpack "lhn.txt" "lhn" --replace_existing
 
 # LLM-Friendly Archiving (single file)
-# Archive lhn package for LLM use (Python files)
+# Archive lhn package for LLM use (Python and Quarto files, no subdirectories)
 python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
-    --file_types .py \
-    --llm-friendly \
-    --split-output \
-    --root-files requirements.txt setup.py environment_spark.yaml \
-    --split-output-dir "lhn/split_archive"
-
-# LLM-Friendly Archiving (single file)
-# Archive lhn package for LLM use (Python files)
-python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
-    --file_types .py \
-    --llm-friendly \
-    --split-output \
+    --file_types .py .qmd \
     --no-subdirectories \
-    --split-output-dir "lhn/split_archive" 
-    --file_prefixes __init__ header extract resources\
-
-python -m txtarchive archive "lhn/lhn" "lhn-ADS-llm-friendly.txt" \
-    --file_types .py \
     --llm-friendly \
     --split-output \
-    --no-subdirectories \
-    --split-output-dir "lhn/split_archive_ADS" \
-    --file_prefixes __init__ header resource extract listTable metadata_functions metaTable_module spark_query statisticalSummary query data_display plot cohort spark_utils
-    
+    --extract-code-only \
+    --split-output-dir "split_lhn"
+
 # LLM-Friendly Archiving (split output)
-# Archive SickleCell notebooks for LLM use with split output
+# Archive SickleCell notebooks and Quarto files for LLM use with split output
 python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" \
-    --file_types .ipynb .yaml \
+    --file_types .ipynb .qmd .yaml \
     --llm-friendly \
     --extract-code-only \
     --split-output \
     --split-output-dir "split_SickleCell"
 
 # LLM-Friendly Archiving with File Prefixes
-# Archive specific SickleCell notebooks for LLM use (selected by prefix)
+# Archive specific SickleCell notebooks and Quarto files for LLM use (selected by prefix)
 python -m txtarchive archive "SickleCell" "SickleCell_ADSCreationLLM.txt" \
-    --file_types .ipynb \
+    --file_types .ipynb .qmd \
     --no-subdirectories \
     --llm-friendly \
     --extract-code-only \
     --split-output \
-    --file_prefixes 011 015 016 017\
-    --split-output-dir "split_SickleCell"
+    --file_prefixes 011-Demographics 015-Compile-EHR 016-Labs-to-show 017-Find-heart 060-Create-ADS 065-Create-feature 066-Create-feature 067-Create-Features 018-VIP 110-Sickle-Study-dataset-86424
 
-python -m txtarchive archive "SickleCell" "SickleCell_allLLM.txt" \
-    --file_types .ipynb \
-    --no-subdirectories \
-    --llm-friendly \
-    --extract-code-only \
-    --split-output \
-    --split-output-dir "split_SickleCellall"
-
-python -m txtarchive archive "SCDCernerProject" "SickleCell_allLLM.txt" \
-    --file_types .ipynb \
-    --no-subdirectories \
-    --llm-friendly \
-    --extract-code-only \
-    --split-output \
-    --split-output-dir "split_SickleCellall"
-
-python -m txtarchive archive "SickleCell" "SickleCell/SickleCell_allLLM.txt" \
-    --file_types .ipynb \
-    --no-subdirectories \
-    --llm-friendly \
-    --extract-code-only \
-    --split-output \
-    --split-output-dir "split_SickleCellall"
-
-# Archive specific lhn modules for LLM use (selected by prefix)
+# Archive specific lhn modules and Quarto files for LLM use (selected by prefix)
 python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
-    --file_types .py \
+    --file_types .py .qmd \
     --no-subdirectories \
     --llm-friendly \
     --extract-code-only \
@@ -136,20 +86,20 @@ python -m txtarchive archive "lhn" "lhn-llm-friendly.txt" \
     --split-output-dir "split_lhn" \
     --file_prefixes extract resource
 
-# Extract Notebooks from LLM-Friendly Archive
-# Extract notebooks from a split archive
-python -m txtarchive extract-notebooks "split_SickleCell_ADSCreationLLM" "extracted_notebooks" --replace_existing
+# Extract Notebooks and Quarto Files from LLM-Friendly Archive
+# Extract notebooks and Quarto files from a split archive
+python -m txtarchive extract-notebooks-and-quarto "split_SickleCell_ADSCreationLLM" "extracted_files" --replace_existing
 
-# Archive Config Directory (YAML files)
+# Archive Config Directory (YAML and Quarto files)
 python -m txtarchive archive "config" "config/config-LLM-archive.txt" \
-    --file_types .yaml \
+    --file_types .yaml .qmd \
     --llm-friendly \
     --split-output \
     --split-output-dir "config/split_config"
 """
 
     parser = argparse.ArgumentParser(
-        description="txtarchive: A utility for archiving and extracting text files and Jupyter notebooks.",
+        description="txtarchive: A utility for archiving and extracting text files, Jupyter notebooks, and Quarto Markdown files.",
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -176,8 +126,8 @@ python -m txtarchive archive "config" "config/config-LLM-archive.txt" \
     archive_parser.add_argument(
         '--file_types',
         nargs='+',
-        default=['.yaml', '.py', '.r'],
-        help='File extensions to include (e.g., .ipynb .py)'
+        default=['.yaml', '.py', '.r', '.ipynb', '.qmd'],
+        help='File extensions to include (e.g., .ipynb .qmd .py)'
     )
     archive_parser.add_argument(
         '--no-subdirectories',
@@ -187,12 +137,12 @@ python -m txtarchive archive "config" "config/config-LLM-archive.txt" \
     archive_parser.add_argument(
         '--extract-code-only',
         action='store_true',
-        help='Extract only code cells from Jupyter notebooks'
+        help='Extract only code cells from Jupyter notebooks and code blocks from Quarto files'
     )
     archive_parser.add_argument(
         '--llm-friendly',
         action='store_true',
-        help='Format archive for LLM input (e.g., no notebook metadata)'
+        help='Format archive for LLM input (e.g., no notebook metadata, only code blocks for Quarto)'
     )
     archive_parser.add_argument(
         '--file_prefixes',
@@ -310,15 +260,15 @@ python -m txtarchive archive "config" "config/config-LLM-archive.txt" \
     archive_subs_parser.add_argument(
         '--file_types',
         nargs='+',
-        default=['.yaml', '.py', '.r'],
-        help='File extensions to include (e.g., .yaml .py)'
+        default=['.yaml', '.py', '.r', '.ipynb', '.qmd'],
+        help='File extensions to include (e.g., .yaml .py .qmd)'
     )
 
-    # --- extract-notebooks Command ---
+    # --- extract-notebooks-and-quarto Command ---
     extract_nb_parser = subparsers.add_parser(
-        'extract-notebooks',
-        help='Extract Jupyter notebooks from an LLM-friendly archive',
-        description='Reconstruct .ipynb files from an LLM-friendly text archive or a directory of split archive files.'
+        'extract-notebooks-and-quarto',
+        help='Extract Jupyter notebooks and Quarto Markdown files from an LLM-friendly archive',
+        description='Reconstruct .ipynb and .qmd files from an LLM-friendly text archive or a directory of split archive files.'
     )
     extract_nb_parser.add_argument(
         'archive_file_path',
@@ -328,12 +278,12 @@ python -m txtarchive archive "config" "config/config-LLM-archive.txt" \
     extract_nb_parser.add_argument(
         'output_directory',
         type=str,
-        help='Directory to save the reconstructed .ipynb files (output)'
+        help='Directory to save the reconstructed .ipynb and .qmd files (output)'
     )
     extract_nb_parser.add_argument(
         '--replace_existing',
         action='store_true',
-        help='Replace existing .ipynb files in the output directory'
+        help='Replace existing .ipynb and .qmd files in the output directory'
     )
 
     args = parser.parse_args()
@@ -366,9 +316,9 @@ python -m txtarchive archive "config" "config/config-LLM-archive.txt" \
         run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing)
     elif args.command == 'archive_subdirectories':
         archive_subdirectories(args.parent_directory, args.directories, args.combined_archive_dir, args.combined_archive_name, args.file_types)
-    elif args.command == 'extract-notebooks':
-        logger.info(f"Extracting notebooks from {args.archive_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
-        run_extract_notebooks(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing)
+    elif args.command == 'extract-notebooks-and-quarto':
+        logger.info(f"Extracting notebooks and Quarto files from {args.archive_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
+        run_extract_notebooks_and_quarto(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing)
     elif args.command == 'generate':
         logger.info(f"Generating archive from {args.study_plan_path} and {args.lhn_archive_path}")
         generate_archive(args.study_plan_path, args.lhn_archive_path, args.output_archive_path, args.llm_model)
