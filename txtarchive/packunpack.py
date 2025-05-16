@@ -780,12 +780,14 @@ def run_extract_notebooks(archive_file_path, output_directory, replace_existing=
     extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing)
     logger.info(f"Notebooks extracted to: {output_directory}")
 
+# [Other unchanged functions: read_notebook, remove_outputs_from_code_cells, concatenate_files, unpack_files, run_concat_no_subdirs, run_concat, run_unpack, archive_subdirectories, combine_all_archives, unpack_all_archives, create_llm_archive, archive_files, extract_notebooks_to_ipynb, run_extract_notebooks, validate_archive, generate_archive, mock_llm_call, call_llm]
+
 def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing=False):
     """
-    Extract Jupyter notebooks and Quarto files from an LLM-friendly text archive.
+    Extract Jupyter notebooks and Quarto files from an LLM-friendly or standard text archive.
 
     Args:
-        archive_file_path (Path): Path to the LLM-friendly archive file or directory of split files.
+        archive_file_path (Path): Path to the archive file or directory of split files.
         output_directory (Path): Directory to save the reconstructed .ipynb and .qmd files.
         replace_existing (bool): Whether to overwrite existing files (default: False).
     """
@@ -831,29 +833,45 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
     
     output_directory.mkdir(parents=True, exist_ok=True)
     
+    # Try LLM-friendly format first
     sections = content.split("################################################################################\n# FILE ")
-    if len(sections) < 2:
-        logger.warning(f"No file sections found in archive")
-        return
+    is_llm_friendly = len(sections) > 1
     
-    for section in sections[1:]:
-        lines = section.split("\n", 2)
-        if len(lines) < 3:
-            logger.warning(f"Invalid section format: {section[:50]}...")
-            continue
-            
-        file_info = lines[0].strip()
-        try:
-            file_num, filename = file_info.split(": ", 1)
-            filename = filename.strip()
-            if not (filename.endswith(".ipynb") or filename.endswith(".qmd")):
-                logger.warning(f"Skipping unsupported file: {filename}")
+    if not is_llm_friendly:
+        # Try standard format
+        sections = content.split("---\nFilename: ")[1:]
+        if len(sections) < 1:
+            logger.warning(f"No file sections found in archive")
+            return
+    
+    for section in sections:
+        if is_llm_friendly:
+            lines = section.split("\n", 2)
+            if len(lines) < 3:
+                logger.warning(f"Invalid LLM-friendly section format: {section[:50]}...")
                 continue
-        except ValueError:
-            logger.warning(f"Invalid file info format: {file_info}")
-            continue
-            
-        content = lines[2]
+            file_info = lines[0].strip()
+            try:
+                file_num, filename = file_info.split(": ", 1)
+                filename = filename.strip()
+                if not (filename.endswith(".ipynb") or filename.endswith(".qmd")):
+                    logger.warning(f"Skipping unsupported file: {filename}")
+                    continue
+            except ValueError:
+                logger.warning(f"Invalid file info format: {file_info}")
+                continue
+            content = lines[2]
+        else:
+            try:
+                filename, content = section.split("\n---\n", 1)
+                filename = filename.strip()
+                if not (filename.endswith(".ipynb") or filename.endswith(".qmd")):
+                    logger.warning(f"Skipping unsupported file: {filename}")
+                    continue
+            except ValueError:
+                logger.warning(f"Invalid standard section format: {section[:50]}...")
+                continue
+        
         output_path = output_directory / filename
         if output_path.exists() and not replace_existing:
             output_path = output_path.with_stem(f"{output_path.stem}_copy")
@@ -875,57 +893,66 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
                 "nbformat": 4,
                 "nbformat_minor": 5
             }
-            cells = []
-            current_cell = []
-            cell_type = None
-            cell_number = None
             
-            for line in content.splitlines():
-                if line.startswith("# Cell "):
-                    if current_cell:
-                        cells.append({
-                            "cell_type": cell_type,
-                            "source": current_cell,
-                            "metadata": {},
-                            "execution_count": None,
-                            "outputs": []
-                        })
-                        current_cell = []
-                    cell_type = "code"
-                    try:
-                        cell_number = int(line.split("# Cell ")[1])
-                    except (IndexError, ValueError):
-                        logger.warning(f"Invalid cell marker in {filename}: {line}")
-                    continue
-                elif line.startswith("# Markdown Cell "):
-                    if current_cell:
-                        cells.append({
-                            "cell_type": cell_type,
-                            "source": current_cell,
-                            "metadata": {},
-                            "execution_count": None,
-                            "outputs": []
-                        })
-                        current_cell = []
-                    cell_type = "markdown"
-                    try:
-                        cell_number = int(line.split("# Markdown Cell ")[1])
-                    except (IndexError, ValueError):
-                        logger.warning(f"Invalid cell marker in {filename}: {line}")
-                    continue
-                current_cell.append(line + "\n")
+            if is_llm_friendly:
+                cells = []
+                current_cell = []
+                cell_type = None
+                cell_number = None
                 
-            if current_cell:
-                cells.append({
-                    "cell_type": cell_type,
-                    "source": current_cell,
-                    "metadata": {},
-                    "execution_count": None,
-                    "outputs": []
-                })
+                for line in content.splitlines():
+                    if line.startswith("# Cell "):
+                        if current_cell:
+                            cells.append({
+                                "cell_type": cell_type,
+                                "source": current_cell,
+                                "metadata": {},
+                                "execution_count": None,
+                                "outputs": []
+                            })
+                            current_cell = []
+                        cell_type = "code"
+                        try:
+                            cell_number = int(line.split("# Cell ")[1])
+                        except (IndexError, ValueError):
+                            logger.warning(f"Invalid cell marker in {filename}: {line}")
+                        continue
+                    elif line.startswith("# Markdown Cell "):
+                        if current_cell:
+                            cells.append({
+                                "cell_type": cell_type,
+                                "source": current_cell,
+                                "metadata": {},
+                                "execution_count": None,
+                                "outputs": []
+                            })
+                            current_cell = []
+                        cell_type = "markdown"
+                        try:
+                            cell_number = int(line.split("# Markdown Cell ")[1])
+                        except (IndexError, ValueError):
+                            logger.warning(f"Invalid cell marker in {filename}: {line}")
+                        continue
+                    current_cell.append(line + "\n")
+                    
+                if current_cell:
+                    cells.append({
+                        "cell_type": cell_type,
+                        "source": current_cell,
+                        "metadata": {},
+                        "execution_count": None,
+                        "outputs": []
+                    })
                 
-            notebook["cells"] = cells
-            logger.info(f"Reconstructed {len(cells)} cells for {filename}")
+                notebook["cells"] = cells
+                logger.info(f"Reconstructed {len(cells)} cells for {filename}")
+            else:
+                try:
+                    notebook = json.loads(content)
+                    logger.info(f"Restored JSON notebook: {filename}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in {filename}: {e}")
+                    continue
             
             try:
                 with output_path.open("w", encoding="utf-8") as file:
@@ -948,6 +975,7 @@ def run_extract_notebooks_and_quarto(archive_file_path, output_directory, replac
     extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing)
     logger.info(f"Notebooks and Quarto files extracted to: {output_directory}")
 
+# [Other unchanged functions remain as in previous artifact]
 def validate_archive(archive_file_path):
     with Path(archive_file_path).open("r", encoding="utf-8") as file:
         content = file.read()

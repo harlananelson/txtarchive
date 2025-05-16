@@ -12,17 +12,19 @@ def main():
 
     epilog = """
 Examples:
-# Archive Jupyter notebooks and Quarto files
+# Archive Jupyter notebooks and Quarto files (LLM-friendly)
 python -m txtarchive archive "lhnmetadata" "lhnmetadata/lhnmetadata.txt" \
     --file_types .ipynb .qmd --no-subdirectories --llm-friendly --extract-code-only
 
-# Extract notebooks and Quarto files
-python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" "lhynmetadata" --replace_existing
-
-# Standard archive with TOC
+# Archive Jupyter notebooks (standard mode with TOC)
 python -m txtarchive archive "lhnmetadata" "lhnmetadata/lhnmetadata.txt" \
     --file_types .ipynb --no-subdirectories
+
+# Extract notebooks and Quarto files (LLM-friendly or standard archive)
+python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" "lhynmetadata" --replace_existing
 """
+
+    # [Rest of the file unchanged: parser setup, commands for archive, unpack, generate, archive_subdirectories, extract-notebooks, extract-notebooks-and-quarto]
 
     parser = argparse.ArgumentParser(
         description="txtarchive: A utility for archiving and extracting text files, Jupyter notebooks, and Quarto files.",
