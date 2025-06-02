@@ -1,88 +1,283 @@
-# TxtArchive: Code Archiving and Preparation Toolkit
+# TxtArchive: Code Archiving and File Transfer Toolkit
 
-TxtArchive is a Python utility designed to help manage and prepare code, particularly from Jupyter Notebooks and Quarto files. It facilitates creating text-based archives for various purposes including backup, version control in environments with data sensitivities, and efficient input into Large Language Models (LLMs).
-
-Its core functionalities revolve around two main types of "stripping":
-
-1.  **Output Stripping:** Removing the output cells from Jupyter Notebooks. This is crucial in environments handling sensitive data (e.g., under HIPAA regulations) to prevent inadvertent exposure or storage of actual data values within the notebook file.
-2.  **Markup & Non-Code Element Stripping (`--llm-friendly`, `--extract-code-only`):** Reducing Jupyter Notebooks and other file types to their core code components. This significantly minimizes the number of tokens when preparing content for Large Language Models, making prompts more efficient and cost-effective.
-
-## !! IMPORTANT: Usage in Sensitive Data Environments (e.g., HIPAA) !!
-
-This tool is designed with features (like output stripping) that can be beneficial when working in environments that handle sensitive data, such as those governed by the Health Insurance Portability and Accountability Act (HIPAA). However, **users of TxtArchive bear the SOLE RESPONSIBILITY for ensuring their use of this tool, and the handling of any data or code, complies with HIPAA and all other applicable data privacy, security regulations, and institutional policies.**
-
-**Please be aware of the following:**
-
-* **User Responsibility is Key:** Your organization's security and compliance requirements always supersede the functionality of any tool. This tool aids a process; it does not guarantee compliance.
-* **No Guarantees:** TxtArchive is provided "AS-IS" without any warranty, express or implied, regarding its fitness for HIPAA compliance in your specific use case or its ability to perfectly strip all forms of sensitive data or markup in every scenario.
-* **Verify Output Stripping:** If using the output stripping feature for Jupyter Notebooks, **ALWAYS MANUALLY VERIFY** that it has effectively removed all sensitive data from your notebooks *before* further processing, committing to version control, or sharing.
-* **Verify Markup/Code Extraction:** If using `--llm-friendly` or `--extract-code-only` options, review the output to ensure it meets your needs for LLM input and hasn't inadvertently removed essential contextual information that *should* be included (while still excluding actual data).
-* **Code Content is Your Responsibility:** Ensure that no Protected Health Information (PHI) or other sensitive data is present in your code comments, variable names, string literals, file names, or any part of the code logic itself that gets processed by this tool.
-* **Submissions to Large Language Models (LLMs):**
-    * You are responsible for any data (including source code) you send to any third-party LLM.
-    * Ensure you have appropriate Business Associate Agreements (BAAs) or equivalent data processing agreements in place with LLM providers if any data, even code, could be considered ePHI, is derived from systems handling ePHI, or is otherwise sensitive.
-    * Thoroughly understand the data handling, privacy, security policies, and terms of service of the LLM provider before submitting any content.
-* **Analysis Plans for AI Code Generation:** If using features that involve generating code from "analysis plans" or similar descriptive documents:
-    * Ensure these plans **DO NOT** contain any PHI or overly specific sensitive operational details that could compromise privacy or security.
-    * Treat these analysis plans as potentially sensitive documents themselves.
-* **Secure Your Environment:** You are responsible for securing your local and remote environments where you use this tool and store your code and data.
-* **This Tool Does Not "Understand" PHI:** TxtArchive operates on the structure of code and notebooks. It does not identify or understand the *content* of your data.
-
-**By using TxtArchive, you acknowledge and agree to these terms and responsibilities.**
+TxtArchive is a Python utility for archiving code files into text format for easy transfer between local machines and remote environments (like AWS cloud). It supports both standard archiving for file movement and LLM-friendly formats for AI analysis, with options for splitting large archives to fit transfer or token limits.
 
 ## Features
 
-* Convert Jupyter Notebooks (`.ipynb`) and Quarto files (`.qmd`) to plain text archives.
-* **Strip outputs from Jupyter Notebooks:** Essential for removing potentially sensitive data.
-* **LLM-Friendly Archiving (`--llm-friendly`):** Optimizes content for LLMs by removing markdown, raw cells, and other non-essential elements from notebooks, focusing on code and a summary.
-* **Extract Code Only (`--extract-code-only`):** A more aggressive mode for LLMs, aiming to extract only the executable code blocks from notebooks.
-* Process individual files or entire directories.
-* Generate a table of contents within the archive for easier navigation (standard mode).
-* Extract files from a previously created text archive back into their original file structure.
-* Optionally exclude subdirectories from processing.
-* Optionally replace existing files during extraction.
+- **Archive & Unpack**: Combine files into text archives and extract them back to directories
+- **File Transfer**: Move directories between local and remote systems via text files
+- **LLM-Friendly Format**: Strip notebook outputs and metadata for AI analysis
+- **Smart Splitting**: Split large archives into chunks for transfer or token limits
+- **Flexible Filtering**: Select files by type, prefix, or specific directories
+- **Dual Formats**: Standard format for exact file reconstruction, LLM format for code analysis
 
 ## Installation
 
-1.  Clone the repository:
-    ```bash
-    git clone [https://github.com/harlananelson/txtarchive.git](https://github.com/harlananelson/txtarchive.git)
-    cd txtarchive
-    ```
-2.  Install dependencies (primarily `nbformat`):
-    ```bash
-    pip install nbformat
-    # If you plan to use LLM functionalities that directly call APIs through this tool
-    # (if such features are added), you might need additional packages:
-    # pip install openai # or other relevant LLM SDKs
-    ```
-3.  The tool is typically run as a module: `python -m txtarchive ...`
+1. Clone and install:
+   ```bash
+   git clone https://github.com/harlananelson/txtarchive.git
+   cd txtarchive
+   pip install .
+   ```
 
-## Usage Examples
+2. Verify installation:
+   ```bash
+   python -m txtarchive --version
+   ```
 
-All examples assume you are running the commands from the root directory of the cloned `txtarchive` repository, or that the `txtarchive` module is otherwise in your Python path.
+**Requirements**: Python 3.8+, `nbformat` (for Jupyter notebook support)
 
-### 1. Archiving for LLM Input (Code-Focused)
+## Core Commands
 
-**Scenario:** You want to create a highly condensed text archive of Jupyter notebooks and Quarto files from a specific project directory, containing only the code, to minimize tokens for an LLM prompt. You want to process only the top-level directory.
+- **Archive**: `python -m txtarchive archive <directory> <output_file> [options]`
+- **Unpack**: `python -m txtarchive unpack <archive_file> <output_directory> [options]`
+- **Extract Notebooks**: `python -m txtarchive extract-notebooks <archive_file> <output_directory> [options]`
 
+## Key Options
+
+- `--file_types .py .ipynb .yaml`: Include specific file types
+- `--file_prefixes prefix1 prefix2`: Include only files starting with prefixes
+- `--llm-friendly --extract-code-only`: Create LLM-optimized archives
+- `--split-output`: Split archives into multiple files
+- `--no-subdirectories`: Archive only top-level files
+- `--root-files setup.py requirements.txt`: Include specific root files
+- `--replace_existing`: Overwrite existing files when unpacking
+
+## Complete Examples
+
+### 1. SickleCell Project - LLM Analysis (Multi-file Split)
+
+**Purpose**: Archive specific Jupyter notebooks for LLM analysis, splitting for token limits
+
+**Archive** (creates split files for LLM processing):
 ```bash
-# Archive Jupyter notebooks and Quarto files, LLM-friendly, code-only
-python -m txtarchive archive "path/to/your_project_directory" "output/project_llm_code_only.txt" \
-    --file_types .ipynb .qmd \
+python -m txtarchive archive "SickleCell" "SickleCell_analysis.txt" \
+    --file_types .ipynb \
     --no-subdirectories \
     --llm-friendly \
-    --extract-code-only
+    --extract-code-only \
+    --split-output \
+    --file_prefixes 015 016 017 050 060 065 067 
+```
 
-# What this does:
-# - "path/to/your_project_directory": Specifies the source directory.
-# - "output/project_llm_code_only.txt": Specifies the output archive file.
-# - --file_types .ipynb .qmd: Processes only these file extensions.
-# - --no-subdirectories: Ignores any subfolders within the source directory.
-# - --llm-friendly: Applies LLM-specific formatting (e.g., strips markdown, raw cells from notebooks).
-#                   Implies output stripping for notebooks.
-# - --extract-code-only: Further refines --llm-friendly by aiming to include *only* code cells from notebooks.
+**Result**: 
+- `SickleCell_analysis.txt` (single archive)
+- `split_SickleCell_analysis/` directory with `SickleCell_analysis_part1.txt`, `SickleCell_analysis_part2.txt`, etc.
 
-# REMEMBER:
-# - Always review the generated .txt file to ensure it meets your LLM input requirements.
-# - Ensure no sensitive data was present in the code itself.
+**Extract Notebooks** (reconstruct .ipynb files):
+```bash
+# From split files
+python -m txtarchive extract-notebooks "split_SickleCell_analysis" "extracted_notebooks" --replace_existing
+
+# Or from single archive
+python -m txtarchive extract-notebooks "SickleCell_analysis.txt" "extracted_notebooks" --replace_existing
+```
+
+**Archive** (creates split files for LLM processing):
+```bash
+python -m txtarchive archive "SickleCell" "SickleCell_R.txt" \
+    --file_types .ipynb \
+    --no-subdirectories \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --file_prefixes 1021 1020 1060 1030
+```
+
+**Result**: 
+- `SickleCell_R.txt` (single archive)
+- `split_SickleCell_R/` directory with `SickleCell_R_part1.txt`, `SickleCell_R_part2.txt`, etc.
+
+**Extract Notebooks** (reconstruct .ipynb files):
+```bash
+# From split files
+python -m txtarchive extract-notebooks "split_SickleCell_R" "extracted_notebooks" --replace_existing
+
+# Or from single archive
+python -m txtarchive extract-notebooks "SickleCell_R.txt" "extracted_notebooks" --replace_existing
+```
+---
+
+### 2. LHN Package - File Transfer (Two Directory Levels)
+
+**Purpose**: Move entire Python package between local and remote systems
+
+**Archive** (for complete package transfer):
+```bash
+python -m txtarchive archive "lhn" "lhn/lhn.txt" \
+    --file_types .py .yaml .md \
+    --root-files setup.py requirements.txt environment_spark.yaml README.md \
+    --include-subdirs core utils tests lhn
+```
+
+**Transfer and Unpack** (on destination system):
+```bash
+# After transferring lhn_package.txt to remote system
+python -m txtarchive unpack "lhn.txt" "lhn" --replace_existing
+```
+
+**Archive with Splitting** (for large packages):
+```bash
+python -m txtarchive archive "lhn" "lhn/lhn.txt" \
+    --file_types .py .yaml .md \
+    --root-files setup.py requirements.txt environment_spark.yaml \
+    --split-output
+```
+
+**Unpack from Split Files**:
+```bash
+# Concatenate split files first
+cat split_lhn/* > lhn.txt
+python -m txtarchive unpack "lhn.txt" "lhn" --replace_existing
+```
+
+---
+
+### 3. Control Directory - Simple File Transfer (Single Directory)
+
+**Purpose**: Archive single directory for moving between systems
+
+**Archive** (all files in one directory):
+```bash
+python -m txtarchive archive "config" "config/config.txt" \
+    --file_types .py .yaml .json .txt \
+    --no-subdirectories
+```
+
+**Unpack** (on destination):
+```bash
+python -m txtarchive unpack "config.txt" "config" --replace_existing
+```
+
+**Archive with File Prefix Filter**:
+```bash
+python -m txtarchive archive "control" "control_config.txt" \
+    --file_types .yaml .json \
+    --no-subdirectories \
+    --file_prefixes config- settings-
+```
+
+---
+
+### 4. Multi-Directory Project - Selective Archiving
+
+**Purpose**: Archive multiple specific directories from a larger project
+
+**Archive Selected Directories**:
+```bash
+python -m txtarchive archive "MyProject" "project_core.txt" \
+    --file_types .py .ipynb \
+    --include-subdirs src tests notebooks \
+    --root-files setup.py pyproject.toml
+```
+
+**Archive with LLM Format and Split**:
+```bash
+python -m txtarchive archive "MyProject" "project_llm.txt" \
+    --file_types .py .ipynb \
+    --include-subdirs src notebooks \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output
+```
+
+**Unpack**:
+```bash
+python -m txtarchive unpack "project_core.txt" "MyProject" --replace_existing
+```
+
+---
+
+### 5. Configuration Files - Prefix-Based Selection
+
+**Purpose**: Archive only configuration files with specific naming patterns
+
+**Archive by Prefix**:
+```bash
+python -m txtarchive archive "configs" "system_configs.txt" \
+    --file_types .yaml .json .toml \
+    --no-subdirectories \
+    --file_prefixes prod- dev- test-
+```
+
+**Archive Environment-Specific**:
+```bash
+python -m txtarchive archive "deployment" "prod_config.txt" \
+    --file_types .yaml .env \
+    --file_prefixes prod_ production_
+```
+
+**Unpack**:
+```bash
+python -m txtarchive unpack "system_configs.txt" "configs" --replace_existing
+```
+
+---
+
+### 6. Notebook Development - LLM-Friendly Workflow
+
+**Purpose**: Create clean code archives for LLM analysis and collaboration
+
+**Archive for LLM** (strips outputs and metadata):
+```bash
+python -m txtarchive archive "analysis_notebooks" "clean_analysis.txt" \
+    --file_types .ipynb \
+    --llm-friendly \
+    --extract-code-only \
+    --file_prefixes 01_ 02_ 03_
+```
+
+**Archive with Split for Large Projects**:
+```bash
+python -m txtarchive archive "ml_pipeline" "pipeline_llm.txt" \
+    --file_types .ipynb .py \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --split-max-chars 80000
+```
+
+**Extract Back to Notebooks**:
+```bash
+python -m txtarchive extract-notebooks "clean_analysis.txt" "restored_notebooks" --replace_existing
+```
+
+## File Transfer Workflow
+
+### Local to Remote (AWS/Cloud):
+1. **Archive locally**: `python -m txtarchive archive "myproject" "project.txt" --file_types .py .yaml`
+2. **Transfer**: Copy `project.txt` to remote system (scp, rsync, cloud storage)
+3. **Unpack remotely**: `python -m txtarchive unpack "project.txt" "myproject" --replace_existing`
+
+### Large File Handling:
+1. **Archive with split**: Add `--split-output` to create multiple smaller files
+2. **Transfer split files**: Move the entire `split_*` directory
+3. **Concatenate and unpack**: `cat split_*/* > archive.txt && python -m txtarchive unpack archive.txt output/`
+
+## Tips for Different Use Cases
+
+**For File Transfer:**
+- Use standard format (no `--llm-friendly`) for exact file reconstruction
+- Include `--root-files` for important project files like `setup.py`, `requirements.txt`
+- Use `--split-output` for large projects that exceed transfer limits
+
+**For LLM Analysis:**
+- Use `--llm-friendly --extract-code-only` to minimize tokens
+- Use `--file_prefixes` to analyze specific notebook sequences
+- Split archives to fit model context windows
+
+**For Backup/Archival:**
+- Include all relevant file types with `--file_types`
+- Use standard format to preserve exact file structure
+- Consider excluding build directories with `--exclude-dirs build .git`
+
+## Troubleshooting
+
+- **Large files**: Use `--split-output` to create manageable chunks
+- **Transfer errors**: Check `txtarchve.log` for detailed error messages
+- **Missing files**: Verify file types and prefixes match your target files
+- **Permission issues**: Ensure write access to output directories
+
+## Security Notice
+
+When using TxtArchive in environments handling sensitive data (e.g., HIPAA-regulated), users are solely responsible for ensuring compliance with all applicable privacy and security regulations. Always verify that archive outputs contain no sensitive information before transferring or sharing files.
