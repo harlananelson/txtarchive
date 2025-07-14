@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "txtarchive"
+version = "0.1.0"
+authors = [
+  { name="Your Name", email="harlananelson@gmail.com" },
+]
+description = "A utility for archiving and unpacking text files"
+readme = "README.md"
+requires-python = ">=3.7.6"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  # Add your runtime dependencies here, e.g.:
+  # "requests>=2.20",
+]
+
+[project.scripts]
+txtarchive = "txtarchive.__main__:main"
+
+[tool.setuptools]
+packages = ["txtarchive"] # Or use find:
+# packages = { find = {} }
+include-package-data = true
