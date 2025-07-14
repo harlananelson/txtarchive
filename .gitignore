@@ -126,3 +126,4 @@ split_txtarchive/
 build/
 dist/
 *.egg-info/
+txtarchive.txt
