@@ -22,13 +22,29 @@
           # The `src` is the directory containing the flake itself.
           src = self;
 
-          # If the package has dependencies, list them here.
-          # For example: propagatedBuildInputs = with pkgs.python3.pkgs; [ requests beautifulsoup4 ];
-          propagatedBuildInputs = with pkgs.python3.pkgs; [ ];
+          
+          format = "pyproject";
 
-          # This tells Nix that the resulting package is in a format that can be tested with `nix build`
-          # and makes sure its dependencies are met.
-          format = "pyproject"; # or  "setuptools" if using setup.py
+          # Add all the build dependencies needed for pyproject builds
+          nativeBuildInputs = with pkgs.python3.pkgs; [ 
+            setuptools 
+            wheel 
+            build
+            pip  # Sometimes needed for pyproject builds
+          ];
+          
+
+          # Add any runtime dependencies your package needs
+          propagatedBuildInputs = with pkgs.python3.pkgs; [ 
+            # Add your package dependencies here if any
+          ];
+
+          
+          # Skip tests for now - you can enable later when you have tests
+          doCheck = false;
+          
+          # Optional: specify Python version compatibility
+          pythonImportsCheck = [ "txtarchive" ];
         };
 
         # Problem Solved: Provides a dedicated development shell for *working on* txtarchive itself.
@@ -39,8 +55,13 @@
           
           # Add any development-only tools here, like linters or test runners.
           nativeBuildInputs = with pkgs.python3.pkgs; [
+            setuptools
+            wheel
+            build
+            pip
             pytest
             black
+            # Add other dev tools as needed
           ];
         };
       });
