@@ -53,7 +53,7 @@
         devShells.default = pkgs.mkShell {
           name = "txtarchive-dev-shell";
           # sage The inputsFrom attribute is unnecessary here because the devShells.default already includes the tools explicitly listed in nativeBuildInputs.
-          #inputsFrom = [ self.packages.${system}.default ];
+          inputsFrom = [ self.packages.${system}.default ];
           
           # Add any development-only tools here, like linters or test runners.
           nativeBuildInputs = with pkgs.python3.pkgs; [
@@ -66,6 +66,25 @@
             #requests removed by sage as it is not needed in devShells
             # Add other dev tools as needed
           ];
+          # This hook runs every time you enter the shell
+          shellHook = ''
+            # Create a virtual environment directory if it doesn't exist
+            if [ ! -d ".venv" ]; then
+              echo "Creating Python virtual environment in ./.venv..."
+              python -m venv .venv
+            fi
+
+            # Activate the virtual environment
+            source .venv/bin/activate
+
+            echo "Installing txtarchive in editable mode into the venv..."
+            # Use a newer pip if available and install the project
+            pip install --upgrade pip
+            pip install -e .
+
+            echo "Nix shell is ready. Python environment is in ./.venv"
+          '';
+
         };
       });
 }

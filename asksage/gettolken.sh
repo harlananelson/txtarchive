@@ -5,7 +5,7 @@ EMAIL=$SAGE_EMAIL
 PASSWORD=$SAGE_PASSWORD
 
 # Authenticate and get the access token
-RAW_RESPONSE=$(curl -s -X POST https://api.asksage.ai/user/get-token \
+RAW_RESPONSE=$(curl -s -X POST https://api.asksage.ai/server/train \
 -H "Content-Type: application/json" \
 -d "{
   \"email\": \"$EMAIL\",
