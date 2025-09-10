@@ -485,7 +485,7 @@ def archive_files(
     file_prefixes=None,
     llm_friendly=False,
     split_output=False,
-    max_chars=100000,
+    max_tokens=100000,
     split_output_dir=None,
     exclude_dirs=None,
     root_files=None,
@@ -501,6 +501,7 @@ def archive_files(
     file_list = []
 
     logger.info(f"Archiving files from: {directory}")
+    logger.info(f"Excluding directories: {exclude_dirs}")
     all_contents = ""
     creation_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     all_contents += f"# Archive created on: {creation_date}\n\n"
@@ -519,6 +520,7 @@ def archive_files(
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Ensured output directory exists: {output_file_path.parent}")
 
+    # Process root files first
     for file_name in root_files:
         path = directory / file_name
         if not path.is_file():
@@ -540,19 +542,25 @@ def archive_files(
             file_list.append((rel_path, content))
             processed_files.add(str(rel_path))
 
+    # Get file iterator
     file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
 
     for path in file_iterator:
-        if include_subdirectories and any(parent.name in exclude_dirs for parent in path.parents):
-            logger.info(f"Skipping file in excluded directory: {path}")
-            continue
+        # FIXED: Check exclusion earlier and more correctly
+        if include_subdirectories:
+            # Check if any parent directory is in exclude_dirs
+            path_parts = path.relative_to(directory).parts
+            if any(part in exclude_dirs for part in path_parts):
+                continue
+        
         rel_path = path.relative_to(directory)
         parent_dir = rel_path.parent.name if rel_path.parent != Path(".") else ""
         is_root_file = rel_path.parent == Path(".")
         is_included_subdir = not include_subdirs or parent_dir in include_subdirs
+        
         if not (is_root_file or (include_subdirectories and is_included_subdir)):
-            logger.info(f"Skipping file not in root or included subdir: {path}")
             continue
+            
         if path.is_file():
             is_gitignore = path.name == ".gitignore"
             if not (is_gitignore or (not path.name.startswith((".", "#")) and path.suffix in file_types)):
@@ -565,8 +573,10 @@ def archive_files(
                 continue
             if file_prefixes and not is_gitignore and not any(path.name.startswith(prefix) for prefix in file_prefixes):
                 continue
+                
             logger.info(f"Processing file: {path}")
             content = None
+            
             if path.suffix == ".ipynb":
                 try:
                     notebook_content = read_notebook(path)
@@ -623,7 +633,7 @@ def archive_files(
         split_dir = Path(split_output_dir) if split_output_dir else output_file_path.parent / f"split_{output_file_path.stem}"
         split_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Ensured split output directory exists: {split_dir}")
-        split_file(output_file_path, max_chars=max_chars, output_dir=split_dir)
+        split_file(output_file_path, max_tokens=max_tokens, output_dir=split_dir)
         logger.info(f"Split files created in: {split_dir}")
 
     return output_file_path
