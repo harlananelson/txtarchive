@@ -3,6 +3,8 @@ import argparse
 import logging
 from importlib.metadata import version
 from txtarchive.packunpack import archive_files, run_unpack, archive_subdirectories, run_extract_notebooks, run_extract_notebooks_and_quarto
+import os
+from txtarchive.ask_sage import ingest_document
 from .header import logger
 
 __version__ = version("txtarchive")
@@ -34,6 +36,12 @@ python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" 
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}', help='Show the version and exit')
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands', required=False)
+
+    # Add a subcommand for document ingestion
+    ingest_parser = subparsers.add_parser("ingest", help="Ingest a document into Ask Sage")
+    ingest_parser.add_argument(
+        "--file", required=True, help="Path to the document to be ingested"
+    )
 
     # Archive Command
     archive_parser = subparsers.add_parser(
@@ -245,6 +253,20 @@ python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" 
         else:
             parser.print_help()
         return
+
+    
+    # ask_sage ingestion handling
+    if args.command == "ingest":
+        # Handle the "ingest" command
+        try:
+            response = ingest_document(args.file)
+            print("Document ingested successfully!")
+            print("Response:", response)
+        except Exception as e:
+            print(f"Error: {e}")
+    else:
+        parser.print_help()
+
 
     if args.command == 'archive':
         archive_files(
