@@ -36,6 +36,7 @@
 
           # Add any runtime dependencies your package needs
           propagatedBuildInputs = with pkgs.python3.pkgs; [ 
+            requests
             # Add your package dependencies here if any
           ];
 
@@ -51,16 +52,18 @@
         # This is good practice and completes the "Spoke" pattern.
         devShells.default = pkgs.mkShell {
           name = "txtarchive-dev-shell";
-          inputsFrom = [ self.packages.${system}.default ];
+          # sage The inputsFrom attribute is unnecessary here because the devShells.default already includes the tools explicitly listed in nativeBuildInputs.
+          #inputsFrom = [ self.packages.${system}.default ];
           
           # Add any development-only tools here, like linters or test runners.
           nativeBuildInputs = with pkgs.python3.pkgs; [
             setuptools
             wheel
             build
-            pip
+            #pip   pip is not required for building a pyproject.toml-based package. The build tool handles the build process.
             pytest
             black
+            #requests removed by sage as it is not needed in devShells
             # Add other dev tools as needed
           ];
         };
