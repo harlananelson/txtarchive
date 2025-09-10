@@ -26,8 +26,6 @@ python -m txtarchive archive "lhnmetadata" "lhnmetadata/lhnmetadata.txt" \
 python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" "lhynmetadata" --replace_existing
 """
 
-    # [Rest of the file unchanged: parser setup, commands for archive, unpack, generate, archive_subdirectories, extract-notebooks, extract-notebooks-and-quarto]
-
     parser = argparse.ArgumentParser(
         description="txtarchive: A utility for archiving and extracting text files, Jupyter notebooks, and Quarto files.",
         epilog=epilog,
@@ -88,13 +86,13 @@ python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" 
     archive_parser.add_argument(
         '--split-output',
         action='store_true',
-        help='Split the output archive into chunks of --split-max-chars'
+        help='Split the output archive into chunks of --max-tokens'
     )
     archive_parser.add_argument(
-        '--split-max-chars',
+        '--max-tokens',
         type=int,
-        default=100000,
-        help='Maximum characters per split file (default: 100000)'
+        default=10000,
+        help='Maximum tokens per split file (default: 10000)'
     )
     archive_parser.add_argument(
         '--split-output-dir',
@@ -254,7 +252,6 @@ python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" 
             parser.print_help()
         return
 
-    
     # ask_sage ingestion handling
     if args.command == "ingest":
         # Handle the "ingest" command
@@ -267,7 +264,6 @@ python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" 
     else:
         parser.print_help()
 
-
     if args.command == 'archive':
         archive_files(
             directory=args.directory,
@@ -278,7 +274,7 @@ python -m txtarchive extract-notebooks-and-quarto "lhnmetadata/lhnmetadata.txt" 
             llm_friendly=args.llm_friendly,
             file_prefixes=args.file_prefixes,
             split_output=args.split_output,
-            max_chars=args.split_max_chars,
+            max_tokens=args.max_tokens,
             split_output_dir=args.split_output_dir,
             exclude_dirs=args.exclude_dirs,
             root_files=args.root_files,
