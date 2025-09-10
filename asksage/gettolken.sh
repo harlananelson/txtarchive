@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Load the Sage password from the environment variable
+# Load the Sage email and password from the environment variables
 EMAIL=$SAGE_EMAIL
 PASSWORD=$SAGE_PASSWORD
 
 # Authenticate and get the access token
-RAW_RESPONSE=$(curl -s -X POST https://api.asksage.ai/server/train \
+RAW_RESPONSE=$(curl -s -X POST https://api.asksage.ai/user/get-token \
 -H "Content-Type: application/json" \
 -d "{
   \"email\": \"$EMAIL\",
