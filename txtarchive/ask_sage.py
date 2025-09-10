@@ -25,7 +25,7 @@ def ingest_document(document_path):
         document_content = file.read()
 
     # Define the API endpoint
-    api_url = "https://api.asksage.ai/train"
+    api_url = "https://api.asksage.ai/server/train"
 
     # Make the API request
     headers = {
@@ -37,6 +37,10 @@ def ingest_document(document_path):
     }
 
     response = requests.post(api_url, headers=headers, json=payload)
+
+    # Debugging: Print the response details
+    print(f"Response Status Code: {response.status_code}")
+    print(f"Response Text: {response.text}")
 
     # Raise an error if the request failed
     if response.status_code != 200:
