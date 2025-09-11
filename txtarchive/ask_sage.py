@@ -48,9 +48,6 @@ def ingest_document(document_path):
 
     return response.json()
 
-
-# Add this function to your ask_sage.py file
-
 def test_endpoints(document_path):
     """
     Test different Ask Sage endpoints to find the best one for ingestion.
@@ -122,39 +119,3 @@ def test_endpoints(document_path):
             print(f"  {endpoint_name}: Error - {e}")
     
     return results
-
-# Add this to your __main__.py in the command handling section:
-
-elif args.command == "ingest":
-    try:
-        if getattr(args, 'test_endpoints', False):
-            # Test all endpoints
-            results = test_endpoints(args.file)
-            
-            print("\n=== ENDPOINT TEST RESULTS ===")
-            for endpoint, result in results.items():
-                status = "✅ SUCCESS" if result['success'] else "❌ FAILED"
-                print(f"{endpoint:10} | {status} | Status: {result.get('status_code', 'N/A')}")
-                if result.get('error'):
-                    print(f"           | Error: {result['error'][:100]}...")
-            
-            # Recommend best endpoint
-            successful_endpoints = [name for name, result in results.items() if result['success']]
-            if successful_endpoints:
-                print(f"\n✅ Recommended endpoints: {', '.join(successful_endpoints)}")
-                print(f"   Use --endpoint {successful_endpoints[0]} for best results")
-            else:
-                print("\n❌ No endpoints succeeded. Check your ACCESS_TOKEN and network connection.")
-        else:
-            # Regular ingestion
-            response_data = ingest_document(args.file)
-            
-            if handle_ingestion_response(response_data, args.file):
-                print("Document ingested successfully!")
-                if response_data:
-                    print("Response:", response_data)
-            else:
-                print("Document ingestion failed. Check logs for details.")
-                
-    except Exception as e:
-        print(f"Error: {e}")
