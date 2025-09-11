@@ -511,6 +511,8 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             include_subdirs=args.include_subdirs,
             ingestion_method=args.ingestion_method,
             remove_archive=args.rm_archive,
+            endpoint=getattr(args, 'endpoint', 'train'),
+            test_endpoints=getattr(args, 'test_endpoints', False)
         )
         
     elif args.command == 'unpack':
