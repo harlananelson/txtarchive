@@ -47,3 +47,114 @@ def ingest_document(document_path):
         raise Exception(f"Failed to ingest document: {response.text}")
 
     return response.json()
+
+
+# Add this function to your ask_sage.py file
+
+def test_endpoints(document_path):
+    """
+    Test different Ask Sage endpoints to find the best one for ingestion.
+    
+    Args:
+        document_path (str): Path to a test document
+        
+    Returns:
+        dict: Results from testing different endpoints
+    """
+    import os
+    
+    access_token = os.getenv("ACCESS_TOKEN")
+    if not access_token:
+        raise EnvironmentError("ACCESS_TOKEN environment variable is not set.")
+    
+    endpoints = {
+        'train': 'https://api.asksage.ai/server/train',
+        'upload': 'https://api.asksage.ai/server/upload', 
+        'embed': 'https://api.asksage.ai/server/embed',
+        'chat': 'https://api.asksage.ai/server/chat'
+    }
+    
+    # Read document content
+    with open(document_path, "r", encoding="utf-8") as file:
+        content = file.read()
+    
+    results = {}
+    
+    for endpoint_name, endpoint_url in endpoints.items():
+        try:
+            print(f"Testing {endpoint_name} endpoint...")
+            
+            headers = {
+                "Content-Type": "application/json",
+                "x-access-tokens": access_token,
+            }
+            
+            # Different payload structures for different endpoints
+            if endpoint_name == 'chat':
+                payload = {
+                    "message": f"Please analyze this content: {content[:1000]}..."  # Truncate for chat
+                }
+            else:
+                payload = {
+                    "content": content,
+                }
+            
+            response = requests.post(endpoint_url, headers=headers, json=payload, timeout=30)
+            
+            results[endpoint_name] = {
+                'status_code': response.status_code,
+                'success': response.status_code == 200,
+                'response_size': len(response.text),
+                'content_length': len(content),
+                'error': None if response.status_code == 200 else response.text
+            }
+            
+            print(f"  {endpoint_name}: Status {response.status_code}")
+            
+        except Exception as e:
+            results[endpoint_name] = {
+                'status_code': None,
+                'success': False,
+                'response_size': 0,
+                'content_length': len(content),
+                'error': str(e)
+            }
+            print(f"  {endpoint_name}: Error - {e}")
+    
+    return results
+
+# Add this to your __main__.py in the command handling section:
+
+elif args.command == "ingest":
+    try:
+        if getattr(args, 'test_endpoints', False):
+            # Test all endpoints
+            results = test_endpoints(args.file)
+            
+            print("\n=== ENDPOINT TEST RESULTS ===")
+            for endpoint, result in results.items():
+                status = "✅ SUCCESS" if result['success'] else "❌ FAILED"
+                print(f"{endpoint:10} | {status} | Status: {result.get('status_code', 'N/A')}")
+                if result.get('error'):
+                    print(f"           | Error: {result['error'][:100]}...")
+            
+            # Recommend best endpoint
+            successful_endpoints = [name for name, result in results.items() if result['success']]
+            if successful_endpoints:
+                print(f"\n✅ Recommended endpoints: {', '.join(successful_endpoints)}")
+                print(f"   Use --endpoint {successful_endpoints[0]} for best results")
+            else:
+                print("\n❌ No endpoints succeeded. Check your ACCESS_TOKEN and network connection.")
+        else:
+            # Regular ingestion
+            response_data = ingest_document(args.file)
+            
+            if handle_ingestion_response(response_data, args.file):
+                print("Document ingested successfully!")
+                if response_data:
+                    print("Response:", response_data)
+            else:
+                print("Document ingestion failed. Check logs for details.")
+                
+    except Exception as e:
+        print(f"Error: {e}")
