@@ -45,7 +45,7 @@ def archive_and_ingest(
     include_subdirectories=True,
     extract_code_only=False,
     file_prefixes=None,
-    llm_friendly=True,  # Default to LLM-friendly for ingestion
+    llm_friendly=True,
     split_output=False,
     max_tokens=75000,
     split_output_dir=None,
