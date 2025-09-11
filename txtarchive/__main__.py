@@ -293,6 +293,9 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         "--file", required=True, help="Path to the document to be ingested"
     )
 
+    ingest_parser.add_argument("--endpoint", choices=['train', 'chat', 'embed', 'upload'], default='train', help="Ask Sage endpoint to use")
+    ingest_parser.add_argument("--test-endpoints", action='store_true', help="Test all endpoints to find the best one")
+
     # Archive Command
     archive_parser = subparsers.add_parser(
         'archive',
@@ -322,8 +325,13 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         help='Remove the archive file after ingestion'
     )
     
+    archive_ingest_parser.add_argument('--endpoint', choices=['train', 'chat', 'embed', 'upload'], default='train', help='Ask Sage endpoint to use')
+    archive_ingest_parser.add_argument('--test-endpoints', action='store_true', help='Test different endpoints to find the best token limits')
+    
     # Set default for llm-friendly in archive-and-ingest
     archive_ingest_parser.set_defaults(llm_friendly=True)
+
+
 
     # Unpack Command
     unpack_parser = subparsers.add_parser(
