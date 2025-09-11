@@ -10,84 +10,69 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        # Define the python version to be used throughout the flake
+        pythonPackages = pkgs.python3.pkgs;
       in
       {
-        # Problem Solved: This exposes the packaged application so other flakes can use it.
-        # `buildPythonApplication` is the standard Nix function for building a Python project
-        # that has a setup.py or pyproject.toml and provides command-line entry points.
-        packages.default = pkgs.python3.pkgs.buildPythonApplication {
+        packages.default = pythonPackages.buildPythonApplication {
           pname = "txtarchive";
-          version = "0.1.0"; # Or pull from a version file
+          version = "0.1.0";
 
-          # The `src` is the directory containing the flake itself.
           src = self;
-
-          
           format = "pyproject";
 
-          # Add all the build dependencies needed for pyproject builds
-          nativeBuildInputs = with pkgs.python3.pkgs; [ 
-            setuptools 
-            wheel 
-            build
-            pip  # Sometimes needed for pyproject builds
-          ];
-          
-
-          # Add any runtime dependencies your package needs
-          propagatedBuildInputs = with pkgs.python3.pkgs; [ 
-            requests
-            # Add your package dependencies here if any
-          ];
-
-          
-          # Skip tests for now - you can enable later when you have tests
-          doCheck = false;
-          
-          # Optional: specify Python version compatibility
-          pythonImportsCheck = [ "txtarchive" ];
-        };
-
-        # Problem Solved: Provides a dedicated development shell for *working on* txtarchive itself.
-        # This is good practice and completes the "Spoke" pattern.
-        devShells.default = pkgs.mkShell {
-          name = "txtarchive-dev-shell";
-          # sage The inputsFrom attribute is unnecessary here because the devShells.default already includes the tools explicitly listed in nativeBuildInputs.
-          inputsFrom = [ self.packages.${system}.default ];
-          
-          # Add any development-only tools here, like linters or test runners.
-          nativeBuildInputs = with pkgs.python3.pkgs; [
-            uv
-            python3.pkgs.pytest
-            python3.pkgs.black
+          nativeBuildInputs = with pythonPackages; [
             setuptools
             wheel
             build
-            #pip   pip is not required for building a pyproject.toml-based package. The build tool handles the build process.
+            # pip is not strictly necessary here as `build` handles it, but can be kept for compatibility
+          ];
+
+          propagatedBuildInputs = with pythonPackages; [
+            requests
+          ];
+
+          doCheck = false;
+          pythonImportsCheck = [ "txtarchive" ];
+        };
+
+        devShells.default = pkgs.mkShell {
+          name = "txtarchive-dev-shell";
+
+          # CHANGE 1: `inputsFrom` is removed. It's redundant because the shellHook
+          # installs the package and its dependencies into the venv anyway.
+          # The build tools are already explicitly listed below.
+
+          # Add development tools here.
+          nativeBuildInputs = with pythonPackages; [
+            uv # Modern and fast venv/package manager
+            # CHANGE 2: Corrected package references and removed duplicates.
+            # Use `pytest` directly, not `python3.pkgs.pytest`.
             pytest
             black
-            #requests removed by sage as it is not needed in devShells
-            # Add other dev tools as needed
+            # Build dependencies needed for `pip install -e .`
+            setuptools
+            wheel
+            build
           ];
+
           # This hook runs every time you enter the shell
           shellHook = ''
-            # Create a virtual environment directory if it doesn't exist
+            # Create/re-use a virtual environment
             if [ ! -d ".venv" ]; then
-              echo "Creating Python virtual environment in ./.venv..."
+              echo "Creating Python virtual environment with uv in ./.venv..."
               uv venv .venv --seed
             fi
 
             # Activate the virtual environment
             source .venv/bin/activate
 
-            echo "Installing txtarchive in editable mode into the venv..."
-            # Use a newer pip if available and install the project
-            pip install --upgrade pip
-            pip install -e .
+            echo "Installing dependencies and txtarchive in editable mode..."
+            # CHANGE 3: Use `uv pip` for consistency and install from pyproject.toml
+            uv pip install -e ".[dev]" # Assumes you have a [project.optional-dependencies] dev group
 
-            echo "Nix shell is ready. Python environment is in ./.venv"
+            echo "✅ Nix shell is ready. Python virtual environment is active."
           '';
-
         };
       });
 }
