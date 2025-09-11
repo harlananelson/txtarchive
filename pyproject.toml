@@ -17,8 +17,10 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-  # Add your runtime dependencies here, e.g.:
-  "requests>=2.20"
+  "requests",
+  "mammoth",
+  "python-docx",
+  "pypandoc",
 ]
 
 [project.scripts]
@@ -28,3 +30,9 @@ txtarchive = "txtarchive.__main__:main"
 packages = ["txtarchive"] # Or use find:
 # packages = { find = {} }
 include-package-data = true
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "black",
+]

@@ -528,6 +528,37 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         logger.info(f"Extracting notebooks and Quarto files from {args.archive_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
         run_extract_notebooks_and_quarto(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing)
         
+    elif args.command == 'convert-word':
+        from pathlib import Path
+        input_path = Path(args.input_path)
+        
+        if input_path.is_file():
+            # Convert single file
+            output_path = args.output_path
+            if output_path is None:
+                output_path = input_path.with_suffix('.md')
+            
+            try:
+                markdown_content = convert_word_to_markdown(input_path, method=args.method)
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(markdown_content)
+                logger.info(f"Successfully converted: {input_path} -> {output_path}")
+            except Exception as e:
+                logger.error(f"Failed to convert {input_path}: {e}")
+                
+        elif input_path.is_dir():
+            # Convert directory of files
+            output_dir = args.output_path or input_path
+            converted_files = convert_word_documents_in_directory(
+                input_path, 
+                output_dir, 
+                method=args.method,
+                replace_existing=args.replace_existing
+            )
+            logger.info(f"Converted {len(converted_files)} Word documents in {input_path}")
+        else:
+            logger.error(f"Input path does not exist: {input_path}")
+        
     elif args.command == 'generate':
         logger.info(f"Generating archive from {args.study_plan_path} and {args.lhn_archive_path}")
         from txtarchive.packunpack import generate_archive

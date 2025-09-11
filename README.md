@@ -248,16 +248,34 @@ python -m txtarchive archive "config/" "configs.txt" \
 python -m txtarchive unpack "configs.txt" "deployed_config/" --replace_existing
 ```
 
-### Example 7: Incremental Development
-Work with file prefixes for numbered development stages:
+### Example 8: Documentation with Word Documents
+Archive mixed documentation including Word documents:
 
 ```bash
-# Archive specific development stages
-python -m txtarchive archive "development/" "stage_analysis.txt" \
-    --file_types .py .ipynb \
-    --file_prefixes 01_ 02_ 03_ \
+# Convert Word docs and archive documentation
+python -m txtarchive archive-and-ingest "documentation/" "archive/docs.txt" \
+    --file_types .md .docx .txt \
+    --convert-word \
+    --word-method mammoth \
     --llm-friendly \
-    --extract-code-only
+    --ingestion-method auto \
+    --max-tokens 50000
+```
+
+### Example 9: Research Project with Mixed Content
+Archive a research project with code, notebooks, and Word documents:
+
+```bash
+# Complete research project archival
+python -m txtarchive archive "research_project/" "archive/research.txt" \
+    --file_types .py .ipynb .docx .md .yaml \
+    --root-files README.md requirements.txt \
+    --convert-word \
+    --word-method auto \
+    --llm-friendly \
+    --extract-code-only \
+    --split-output \
+    --max-tokens 75000
 ```
 
 ## Ingestion Methods Explained
