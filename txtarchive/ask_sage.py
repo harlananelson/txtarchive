@@ -1,12 +1,13 @@
 import os
 import requests
 
-def ingest_document(document_path):
+def ingest_document(document_path, endpoint="train"):
     """
-    Ingest a document into Ask Sage using the /train endpoint.
+    Ingest a document into Ask Sage using the specified endpoint.
 
     Parameters:
         document_path (str): The path to the document to be ingested.
+        endpoint (str): The Ask Sage endpoint to use ('train', 'chat', 'embed', 'upload')
 
     Returns:
         dict: The API response as a dictionary.
@@ -21,20 +22,37 @@ def ingest_document(document_path):
         raise FileNotFoundError(f"Document not found: {document_path}")
 
     # Read the content of the document
-    with open(document_path, "r") as file:
+    with open(document_path, "r", encoding="utf-8") as file:
         document_content = file.read()
 
-    # Define the API endpoint
-    api_url = "https://api.asksage.ai/server/train"
+    # Define the API endpoint URL
+    endpoint_urls = {
+        'train': 'https://api.asksage.ai/server/train',
+        'upload': 'https://api.asksage.ai/server/upload', 
+        'embed': 'https://api.asksage.ai/server/embed',
+        'chat': 'https://api.asksage.ai/server/chat'
+    }
+    
+    if endpoint not in endpoint_urls:
+        raise ValueError(f"Unknown endpoint: {endpoint}. Valid options: {list(endpoint_urls.keys())}")
+    
+    api_url = endpoint_urls[endpoint]
 
     # Make the API request
     headers = {
         "Content-Type": "application/json",
         "x-access-tokens": access_token,
     }
-    payload = {
-        "content": document_content,
-    }
+    
+    # Different payload structures for different endpoints
+    if endpoint == 'chat':
+        payload = {
+            "message": f"Please analyze this content: {document_content}"
+        }
+    else:
+        payload = {
+            "content": document_content,
+        }
 
     response = requests.post(api_url, headers=headers, json=payload)
 
@@ -44,7 +62,7 @@ def ingest_document(document_path):
 
     # Raise an error if the request failed
     if response.status_code != 200:
-        raise Exception(f"Failed to ingest document: {response.text}")
+        raise Exception(f"Failed to ingest document via {endpoint} endpoint: {response.text}")
 
     return response.json()
 
