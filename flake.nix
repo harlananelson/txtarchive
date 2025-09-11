@@ -57,6 +57,9 @@
           
           # Add any development-only tools here, like linters or test runners.
           nativeBuildInputs = with pkgs.python3.pkgs; [
+            uv
+            python3.pkgs.pytest
+            python3.pkgs.black
             setuptools
             wheel
             build
@@ -71,7 +74,7 @@
             # Create a virtual environment directory if it doesn't exist
             if [ ! -d ".venv" ]; then
               echo "Creating Python virtual environment in ./.venv..."
-              python -m venv .venv
+              uv venv .venv --seed
             fi
 
             # Activate the virtual environment
