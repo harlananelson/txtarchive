@@ -9,10 +9,13 @@ python -m txtarchive archive "lhn" "archive/lhn.txt" \
     --root-files setup.py requirements.txt environment_spark.yaml \
     --split-output 
 
-python -m txtarchive archive "txtarchive" "archive/txtarchive.txt" \
+python -m txtarchive archive "../txtarchive" "../archive/txtarchive.txt" \
     --file_types .py .yaml .md \
     --root-files setup.py requirements.txt environment_spark.yaml \
-    --split-output
+    --exclude-dirs .venv __pycache__ .git \
+    --llm-friendly \
+    --split-output \
+    --max-tokens 3000
 
 python -m txtarchive archive srajesh_OMOP/omop_etl "archive/srajesh_OMOP_models.txt" \
     --file_types .py .yaml .md .json .sql \
