@@ -53,7 +53,9 @@ def archive_and_ingest(
     root_files=None,
     include_subdirs=None,
     ingestion_method="auto",
-    remove_archive=False
+    remove_archive=False,
+    endpoint="train",           # Add this parameter
+    test_endpoints=False        # Add this parameter
 ):
     """
     Archive files and then ingest them into Ask Sage.
@@ -64,14 +66,58 @@ def archive_and_ingest(
             - "archive": Create archive first, then ingest
             - "auto": Automatically choose based on project size
         remove_archive (bool): Whether to remove the archive file after ingestion
+        endpoint (str): Ask Sage endpoint to use ('train', 'chat', 'embed', 'upload')
+        test_endpoints (bool): Whether to test all endpoints before ingestion
     """
     from pathlib import Path
+    from .ask_sage import ingest_document, test_endpoints as test_all_endpoints
     
     directory = Path(directory)
     output_file_path = Path(output_file_path)
     
     # Ensure output directory exists
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Test endpoints if requested
+    if test_endpoints:
+        logger.info("Testing all Ask Sage endpoints...")
+        test_file = directory / "README.md"  # Use a common file for testing
+        if not test_file.exists():
+            # Find any suitable file for testing
+            for file_type in file_types:
+                test_files = list(directory.glob(f"*{file_type}"))
+                if test_files:
+                    test_file = test_files[0]
+                    break
+        
+        if test_file.exists():
+            try:
+                results = test_all_endpoints(str(test_file))
+                
+                print("\n=== ENDPOINT TEST RESULTS ===")
+                for endpoint_name, result in results.items():
+                    status = "✅ SUCCESS" if result['success'] else "❌ FAILED"
+                    print(f"{endpoint_name:10} | {status} | Status: {result.get('status_code', 'N/A')}")
+                    if result.get('error'):
+                        print(f"           | Error: {result['error'][:100]}...")
+                
+                # Recommend best endpoint
+                successful_endpoints = [name for name, result in results.items() if result['success']]
+                if successful_endpoints:
+                    print(f"\n✅ Recommended endpoints: {', '.join(successful_endpoints)}")
+                    if endpoint not in successful_endpoints:
+                        print(f"⚠️  Warning: Your selected endpoint '{endpoint}' may not work optimally")
+                        print(f"   Consider using: {successful_endpoints[0]}")
+                else:
+                    print("\n❌ No endpoints succeeded. Check your ACCESS_TOKEN and network connection.")
+                    return
+                    
+            except Exception as e:
+                logger.error(f"Endpoint testing failed: {e}")
+                print(f"Endpoint testing failed: {e}")
+                return
+        else:
+            logger.warning("No suitable test file found for endpoint testing")
     
     if ingestion_method == "auto":
         # Count files to decide method
@@ -96,7 +142,7 @@ def archive_and_ingest(
     
     if ingestion_method == "directory":
         # Ingest files directly
-        logger.info("Ingesting files directly from directory")
+        logger.info(f"Ingesting files directly from directory using '{endpoint}' endpoint")
         
         success_count = 0
         total_files = 0
@@ -106,8 +152,9 @@ def archive_and_ingest(
                 if not path.name.startswith((".", "#")):
                     total_files += 1
                     try:
-                        logger.info(f"Ingesting {path}")
-                        response_data = ingest_document(str(path))
+                        logger.info(f"Ingesting {path} via {endpoint} endpoint")
+                        # Here you'd need to modify ingest_document to accept endpoint parameter
+                        response_data = ingest_document(str(path), endpoint=endpoint)
                         
                         if handle_ingestion_response(response_data, str(path)):
                             success_count += 1
@@ -120,7 +167,7 @@ def archive_and_ingest(
     
     elif ingestion_method == "archive":
         # Create archive first, then ingest
-        logger.info("Creating archive for ingestion")
+        logger.info(f"Creating archive for ingestion via '{endpoint}' endpoint")
         
         archive_files(
             directory=directory,
@@ -141,8 +188,8 @@ def archive_and_ingest(
         # Ingest the main archive ONLY if not splitting
         if not split_output:
             try:
-                logger.info(f"Ingesting single archive: {output_file_path}")
-                response_data = ingest_document(str(output_file_path))
+                logger.info(f"Ingesting single archive via '{endpoint}' endpoint: {output_file_path}")
+                response_data = ingest_document(str(output_file_path), endpoint=endpoint)
                 
                 if not handle_ingestion_response(response_data, str(output_file_path)):
                     logger.error("Failed to ingest main archive")
@@ -156,14 +203,14 @@ def archive_and_ingest(
         if split_output:
             split_dir = Path(split_output_dir) if split_output_dir else output_file_path.parent / f"split_{output_file_path.stem}"
             if split_dir.exists():
-                logger.info("Ingesting split files")
+                logger.info(f"Ingesting split files via '{endpoint}' endpoint")
                 split_files = sorted(split_dir.glob("*.txt"))
                 success_count = 0
                 
                 for split_file in split_files:
                     try:
-                        logger.info(f"Ingesting split file: {split_file}")
-                        response_data = ingest_document(str(split_file))
+                        logger.info(f"Ingesting split file via '{endpoint}' endpoint: {split_file}")
+                        response_data = ingest_document(str(split_file), endpoint=endpoint)
                         
                         if handle_ingestion_response(response_data, str(split_file)):
                             success_count += 1
@@ -178,8 +225,9 @@ def archive_and_ingest(
             output_file_path.unlink()
             logger.info(f"Removed archive file: {output_file_path}")
         
-        logger.info("Archive ingestion complete")
+        logger.info(f"Archive ingestion complete via '{endpoint}' endpoint")
 
+ 
 def add_common_archive_args(parser):
     """Add common archive arguments to a parser to reduce duplication."""
     parser.add_argument(

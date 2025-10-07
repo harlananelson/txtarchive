@@ -6,7 +6,7 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, ... }@inputs:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -19,13 +19,15 @@
           src = self;
           format = "pyproject";
           nativeBuildInputs = with pythonPackages; [ setuptools wheel build ];
-          propagatedBuildInputs = with pythonPackages; [ requests ];
+          propagatedBuildInputs = with pythonPackages; [ requests mammoth python-docx pypandoc ];
           doCheck = false;
           pythonImportsCheck = [ "txtarchive" ];
         };
 
         devShells.default = pkgs.mkShell {
-          name = "txtarchive-dev-shell";
+          packages = [
+            pkgs.quarto
+          ];
 
           nativeBuildInputs = with pythonPackages; [
             uv
@@ -39,20 +41,17 @@
           shellHook = ''
             # To silence the hardlink warning, uncomment the next line
             # export UV_LINK_MODE=copy
-            
+
             if [ ! -d ".venv" ]; then
               echo "Creating Python virtual environment with uv in ./.venv..."
               uv venv .venv --seed
             fi
-
             source .venv/bin/activate
-
             echo "Installing dependencies and txtarchive in editable mode..."
-            # This command will now work because of the change to pyproject.toml
             uv pip install -e ".[dev]"
-
             echo "✅ Nix shell is ready. Python virtual environment is active."
           '';
         };
-      });
+      }
+    );
 }
