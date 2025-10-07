@@ -475,6 +475,8 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
     
     logger.info(f"LLM-friendly archive created at: {output_file_path}")
     return output_file_path
+# Improved archive_files function with better include_subdirs logic
+# Add this to txtarchive/packunpack.py
 
 def archive_files(
     directory,
@@ -520,6 +522,45 @@ def archive_files(
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Ensured output directory exists: {output_file_path.parent}")
 
+    # Helper function to check if a path matches include_subdirs criteria
+    def path_matches_include_subdirs(file_path, base_directory):
+        """
+        Check if a file path should be included based on include_subdirs.
+        
+        Improved logic:
+        1. If include_subdirs is empty, include all files (old behavior)
+        2. If include_subdirs is specified, check if ANY part of the relative path
+           starts with any of the include_subdirs values
+        
+        Examples:
+        - include_subdirs = ['R', 'inst/raw', 'HOWTO']
+        - R/script.R -> matches 'R'
+        - inst/raw/data.csv -> matches 'inst/raw'
+        - inst/other/file.txt -> does NOT match
+        - HOWTO/guide.md -> matches 'HOWTO'
+        """
+        if not include_subdirs:
+            return True
+        
+        try:
+            rel_path = file_path.relative_to(base_directory)
+        except ValueError:
+            return False
+        
+        # Convert to string with forward slashes for consistent comparison
+        rel_path_str = str(rel_path).replace('\\', '/')
+        
+        # Check if the relative path starts with any of the include_subdirs
+        for subdir in include_subdirs:
+            subdir_normalized = subdir.replace('\\', '/')
+            # Check if the file is in this subdirectory or deeper
+            if rel_path_str.startswith(subdir_normalized + '/') or \
+               str(rel_path.parent).replace('\\', '/') == subdir_normalized:
+                logger.debug(f"File {rel_path} matches include_subdir: {subdir}")
+                return True
+        
+        return False
+
     # Process root files first
     for file_name in root_files:
         path = directory / file_name
@@ -546,21 +587,23 @@ def archive_files(
     file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
 
     for path in file_iterator:
-        # FIXED: Check exclusion earlier and more correctly
+        # Check exclusion - check if any parent directory is in exclude_dirs
         if include_subdirectories:
-            # Check if any parent directory is in exclude_dirs
             path_parts = path.relative_to(directory).parts
             if any(part in exclude_dirs for part in path_parts):
                 continue
         
         rel_path = path.relative_to(directory)
-        parent_dir = rel_path.parent.name if rel_path.parent != Path(".") else ""
-        is_root_file = rel_path.parent == Path(".")
-        is_included_subdir = not include_subdirs or parent_dir in include_subdirs
         
-        if not (is_root_file or (include_subdirectories and is_included_subdir)):
-            continue
-            
+        # NEW: Check if path matches include_subdirs criteria
+        if include_subdirs and not path_matches_include_subdirs(path, directory):
+            # File is not in an included subdirectory, skip unless it's a root file
+            if path.parent != directory:  # Not a root-level file
+                continue
+        
+        # Rest of the logic remains the same
+        is_root_file = rel_path.parent == Path(".")
+        
         if path.is_file():
             is_gitignore = path.name == ".gitignore"
             if not (is_gitignore or (not path.name.startswith((".", "#")) and path.suffix in file_types)):
@@ -609,6 +652,7 @@ def archive_files(
                 file_list.append((rel_path, content))
                 processed_files.add(str(rel_path))
 
+    # Rest of the function continues as before...
     file_list.sort(key=lambda x: str(x[0]))
     all_contents += "# TABLE OF CONTENTS\n"
     all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
