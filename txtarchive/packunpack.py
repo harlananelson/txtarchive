@@ -298,6 +298,122 @@ def archive_subdirectories(
         parent_directory, combined_archive_dir, combined_archive_name, directories
     )
 
+def unpack_llm_archive(output_directory, combined_file_path, replace_existing=False):
+    """
+    Unpack files from an LLM-friendly format archive.
+    
+    Args:
+        output_directory (Path): Directory to output the unpacked files.
+        combined_file_path (Path): Path to the LLM-friendly archive file.
+        replace_existing (bool): Whether to replace existing files.
+    """
+    if isinstance(combined_file_path, str):
+        combined_file_path = Path(combined_file_path)
+    if isinstance(output_directory, str):
+        output_directory = Path(output_directory)
+    
+    with combined_file_path.open("r", encoding="utf-8") as file:
+        content = file.read()
+    
+    # Parse LLM-friendly format: split on file separators
+    sections = content.split("################################################################################\n# FILE ")
+    
+    if len(sections) <= 1:
+        logger.warning("No files found in LLM-friendly archive format")
+        return
+    
+    # Create output directory if needed
+    if not output_directory.exists():
+        try:
+            output_directory.mkdir(parents=True)
+            logger.info(f"Created directory: {output_directory}")
+        except Exception as e:
+            logger.error(f"Error creating directory: {e}")
+            return
+    
+    # Process each file section
+    for section in sections[1:]:  # Skip the header before first file
+        # Parse: "N: filename\n###...###\n\ncontent"
+        lines = section.split('\n', 2)
+        if len(lines) < 3:
+            continue
+            
+        # Extract filename from "N: filename"
+        first_line = lines[0]
+        if ': ' in first_line:
+            filename = first_line.split(': ', 1)[1].strip()
+        else:
+            continue
+        
+        # Skip the separator line (line 1 is "###...###")
+        # Content starts at line 2
+        content = lines[2] if len(lines) > 2 else ""
+        
+        # Create file path
+        file_path = output_directory / filename
+        
+        # Check if file exists and handle accordingly
+        if file_path.exists() and not replace_existing:
+            logger.info(f"Skipped existing file: {file_path}")
+            continue
+        
+        # Create parent directories if needed
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write the file
+        try:
+            with file_path.open("w", encoding="utf-8") as f:
+                f.write(content)
+            logger.info(f"Unpacked file: {file_path}")
+        except Exception as e:
+            logger.error(f"Error writing file {file_path}: {e}")
+    
+    logger.info(f"Files unpacked into: {output_directory}")
+
+
+def auto_detect_archive_format(archive_path):
+    """
+    Detect whether archive is standard or LLM-friendly format.
+    
+    Returns:
+        str: 'standard' or 'llm-friendly'
+    """
+    with open(archive_path, 'r', encoding='utf-8') as f:
+        content = f.read(2000)  # Read first 2000 chars
+        
+    if '################################################################################\n# FILE ' in content:
+        return 'llm-friendly'
+    elif '---\nFilename: ' in content:
+        return 'standard'
+    else:
+        # Default to standard for backward compatibility
+        return 'standard'
+
+
+def unpack_files_auto(output_directory, combined_file_path, replace_existing=False):
+    """
+    Auto-detect format and unpack accordingly.
+    """
+    format_type = auto_detect_archive_format(combined_file_path)
+    
+    logger.info(f"Detected archive format: {format_type}")
+    
+    if format_type == 'llm-friendly':
+        return unpack_llm_archive(output_directory, combined_file_path, replace_existing)
+    else:
+        return unpack_files(output_directory, combined_file_path, replace_existing)
+
+
+# Modify run_unpack to use auto-detection
+def run_unpack(output_directory, combined_file_path, replace_existing=False):
+    """Run unpack with auto-detection."""
+    logger.info(
+        f"Unpacking files from {combined_file_path} to {output_directory} using replace_existing={replace_existing}"
+    )
+    unpack_files_auto(output_directory, combined_file_path, replace_existing)
+    logger.info(f"Files have been unpacked into: {output_directory}")
+
+    
 def combine_all_archives(
     parent_directory,
     combined_archive_dir=None,
