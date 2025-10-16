@@ -792,7 +792,7 @@ def archive_files(
 
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
     """
-    Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files.
+    Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files. 
 
     Args:
         archive_file_path (Path): Path to the LLM-friendly archive file or directory of split files.
