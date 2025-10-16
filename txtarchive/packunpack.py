@@ -794,10 +794,11 @@ def archive_files(
         logger.info(f"Split files created in: {split_dir}")
 
     return output_file_path
-
+    
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
     """
     Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files.
+    Now handles both code cells and markdown cells.
 
     Args:
         archive_file_path (Path): Path to the LLM-friendly archive file or directory of split files.
@@ -862,13 +863,13 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
             file_num, filename = file_info.split(": ", 1)
             filename = filename.strip()
             if not filename.endswith(".ipynb"):
-                logger.warning(f"Skipping non-notebook file: {filename}")
+                logger.debug(f"Skipping non-notebook file: {filename}")
                 continue
         except ValueError:
             logger.warning(f"Invalid file info format: {file_info}")
             continue
             
-        content = lines[2]
+        content_text = lines[2]
         
         output_path = output_directory / filename
         if output_path.exists() and not replace_existing:
@@ -884,54 +885,101 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
                     "name": "python3"
                 },
                 "language_info": {
-                    "name": "python"
+                    "name": "python",
+                    "version": "3.10.0"
                 }
             },
             "nbformat": 4,
             "nbformat_minor": 5
         }
         
-        if content.strip().startswith("{"):
+        if content_text.strip().startswith("{"):
             try:
-                notebook = json.loads(content)
+                notebook = json.loads(content_text)
                 logger.info(f"Restored JSON notebook: {filename}")
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON in {filename}: {e}")
                 continue
         else:
+            # Parse the text format with both code and markdown cells
             cells = []
-            current_cell = []
-            cell_number = None
+            content_lines = content_text.splitlines()
+            i = 0
             
-            for line in content.splitlines():
-                if line.startswith("# Cell "):
-                    if current_cell:
+            while i < len(content_lines):
+                line = content_lines[i].strip()
+                
+                # Check for markdown cell
+                if line.startswith("# Markdown Cell "):
+                    # Look for triple quotes on next line
+                    i += 1
+                    if i < len(content_lines) and content_lines[i].strip() == '"""':
+                        # Start collecting markdown content
+                        i += 1
+                        markdown_content = []
+                        while i < len(content_lines):
+                            if content_lines[i].strip() == '"""':
+                                # End of markdown
+                                break
+                            markdown_content.append(content_lines[i] + '\n')
+                            i += 1
+                        
+                        # Create markdown cell
+                        cells.append({
+                            "cell_type": "markdown",
+                            "metadata": {},
+                            "source": markdown_content if markdown_content else []
+                        })
+                    i += 1
+                    
+                # Check for code cell
+                elif line.startswith("# Cell "):
+                    # Collect code until next cell marker or end
+                    i += 1
+                    code_content = []
+                    while i < len(content_lines):
+                        if i >= len(content_lines):
+                            break
+                        next_line = content_lines[i].strip()
+                        # Check if we've hit the next cell marker
+                        if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell "):
+                            break
+                        # Check for empty lines between cells (multiple consecutive empty lines usually indicate cell boundary)
+                        if not next_line and len(code_content) > 0:
+                            # Look ahead to see if next non-empty line is a cell marker
+                            j = i + 1
+                            while j < len(content_lines) and not content_lines[j].strip():
+                                j += 1
+                            if j < len(content_lines) and (content_lines[j].strip().startswith("# Cell ") or content_lines[j].strip().startswith("# Markdown Cell ")):
+                                break
+                        code_content.append(content_lines[i] + '\n')
+                        i += 1
+                    
+                    # Remove trailing empty lines but keep internal blank lines
+                    while code_content and not code_content[-1].strip():
+                        code_content.pop()
+                    
+                    # Only add cell if it has content
+                    if any(line.strip() for line in code_content):
                         cells.append({
                             "cell_type": "code",
-                            "source": current_cell,
-                            "metadata": {},
                             "execution_count": None,
-                            "outputs": []
+                            "metadata": {},
+                            "outputs": [],
+                            "source": code_content
                         })
-                        current_cell = []
-                    try:
-                        cell_number = int(line.split("# Cell ")[1])
-                    except (IndexError, ValueError):
-                        logger.warning(f"Invalid cell marker in {filename}: {line}")
-                    continue
-                current_cell.append(line + "\n")
-                
-            if current_cell:
-                cells.append({
-                    "cell_type": "code",
-                    "source": current_cell,
-                    "metadata": {},
-                    "execution_count": None,
-                    "outputs": []
-                })
-                
+                else:
+                    i += 1
+            
             notebook["cells"] = cells
-            logger.info(f"Reconstructed {len(cells)} code cells for {filename}")
+            
+            # Count cell types for logging
+            code_cells = len([c for c in cells if c['cell_type'] == 'code'])
+            markdown_cells = len([c for c in cells if c['cell_type'] == 'markdown'])
+            logger.info(f"Reconstructed {code_cells} code cells and {markdown_cells} markdown cells for {filename}")
+        
+        # Ensure parent directories exist
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         
         try:
             with output_path.open("w", encoding="utf-8") as file:
