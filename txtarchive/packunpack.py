@@ -238,22 +238,15 @@ def run_concat(
 
     concatenate_files(current_directory, combined_files, file_types=file_types)
 
+# Modify run_unpack to use auto-detection
 def run_unpack(output_directory, combined_file_path, replace_existing=False):
-    """
-    Wrapper for the `unpack_files` function.
+    """Run unpack with auto-detection."""
+    logger.info(
+        f"Unpacking files from {combined_file_path} to {output_directory} using replace_existing={replace_existing}"
+    )
+    unpack_files_auto(output_directory, combined_file_path, replace_existing)
+    logger.info(f"Files have been unpacked into: {output_directory}")
 
-    Args:
-        output_directory (Path): Directory to output the unpacked files.
-        combined_file_path (Path): Path to the combined text file.
-        replace_existing (bool): Whether to replace existing files (default: False).
-    """
-    if isinstance(combined_file_path, str):
-        combined_file_path = Path(combined_file_path)
-    if isinstance(output_directory, str):
-        output_directory = Path(output_directory)
-
-    unpack_files(output_directory, combined_file_path, replace_existing=replace_existing)
-    logger.info("Files have been unpacked into: %s", output_directory)
 
 def archive_subdirectories(
     parent_directory,
@@ -404,16 +397,9 @@ def unpack_files_auto(output_directory, combined_file_path, replace_existing=Fal
         return unpack_files(output_directory, combined_file_path, replace_existing)
 
 
-# Modify run_unpack to use auto-detection
-def run_unpack(output_directory, combined_file_path, replace_existing=False):
-    """Run unpack with auto-detection."""
-    logger.info(
-        f"Unpacking files from {combined_file_path} to {output_directory} using replace_existing={replace_existing}"
-    )
-    unpack_files_auto(output_directory, combined_file_path, replace_existing)
-    logger.info(f"Files have been unpacked into: {output_directory}")
 
-    
+
+
 def combine_all_archives(
     parent_directory,
     combined_archive_dir=None,
@@ -591,8 +577,6 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
     
     logger.info(f"LLM-friendly archive created at: {output_file_path}")
     return output_file_path
-# Improved archive_files function with better include_subdirs logic
-# Add this to txtarchive/packunpack.py
 
 def archive_files(
     directory,
