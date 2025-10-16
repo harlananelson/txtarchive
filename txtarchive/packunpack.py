@@ -373,8 +373,13 @@ def auto_detect_archive_format(archive_path):
     """
     with open(archive_path, 'r', encoding='utf-8') as f:
         content = f.read(2000)  # Read first 2000 chars
-        
-    if '################################################################################\n# FILE ' in content:
+    
+    # Check for LLM-friendly format markers
+    # Look for either the header or the file separator pattern
+    if '# LLM-FRIENDLY CODE ARCHIVE' in content:
+        return 'llm-friendly'
+    elif '################################################################################\n# FILE' in content:
+        # Removed the space requirement after FILE to match "# FILE 1:" pattern
         return 'llm-friendly'
     elif '---\nFilename: ' in content:
         return 'standard'
