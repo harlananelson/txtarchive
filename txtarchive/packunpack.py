@@ -557,8 +557,11 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
                         cell_content = "".join(cell.get("source", []))
                         if cell_content.strip():
                             all_contents += f"# Markdown Cell {cell_idx}\n"
+                            all_contents += '"""\n'
                             all_contents += cell_content
-                            all_contents += "\n\n"
+                            if not cell_content.endswith('\n'):
+                                all_contents += '\n'
+                            all_contents += '"""\n\n'
             except Exception as e:
                 logger.error(f"Error processing notebook {path}: {e}")
                 all_contents += f"# Error processing notebook: {e}\n\n"
@@ -734,7 +737,12 @@ def archive_files(
                                 elif cell["cell_type"] == "markdown" and cell.get("source"):
                                     cell_content = "".join(cell.get("source", []))
                                     if cell_content.strip():
-                                        content += f"# Markdown Cell {cell_idx}\n{cell_content}\n\n"
+                                        content += f"# Markdown Cell {cell_idx}\n"
+                                        content += '"""\n'
+                                        content += cell_content
+                                        if not cell_content.endswith('\n'):
+                                            content += '\n'
+                                        content += '"""\n\n'
                         else:
                             content = json.dumps(remove_outputs_from_code_cells(notebook_content), indent=4)
                 except Exception as e:
