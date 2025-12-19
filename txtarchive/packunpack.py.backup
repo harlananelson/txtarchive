@@ -157,9 +157,7 @@ def unpack_files(output_directory, combined_file_path, replace_existing=False):
                 output_path = output_path.with_suffix(output_path.suffix + "_copy")
                 
             with output_path.open("w", encoding="utf-8") as file:
-                # Unescape delimiter pattern that was escaped during archiving
-                unescaped_content = content.replace("---\\nFilename: ", "---\nFilename: ")
-                file.write(unescaped_content)
+                file.write(content)
                 logger.info("Unpacked file: %s", output_path)
         except Exception as e:
             logger.error(f"Error processing section for {filename}: {e}")
@@ -358,9 +356,7 @@ def unpack_llm_archive(output_directory, combined_file_path, replace_existing=Fa
         # Write the file
         try:
             with file_path.open("w", encoding="utf-8") as f:
-                # Unescape delimiter pattern that was escaped during archiving
-                unescaped_content = content.replace("---\\nFilename: ", "---\nFilename: ")
-                f.write(unescaped_content)
+                f.write(content)
             logger.info(f"Unpacked file: {file_path}")
         except Exception as e:
             logger.error(f"Error writing file {file_path}: {e}")
@@ -778,15 +774,11 @@ def archive_files(
     if llm_friendly:
         for idx, (rel_path, content) in enumerate(file_list, 1):
             all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"
-            # Escape delimiter pattern in content to prevent quoting problem
-            escaped_content = content.replace("---\nFilename: ", "---\\nFilename: ")
-            all_contents += escaped_content
+            all_contents += content
             all_contents += "\n\n"
     else:
         for rel_path, content in file_list:
-            # Escape delimiter pattern in content to prevent quoting problem
-            escaped_content = content.replace("---\nFilename: ", "---\\nFilename: ")
-            all_contents += f"---\nFilename: {rel_path}\n---\n{escaped_content}\n\n"
+            all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
 
     with output_file_path.open("w", encoding="utf-8") as file:
         file.write(all_contents)
