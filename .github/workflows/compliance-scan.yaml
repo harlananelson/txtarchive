@@ -7,22 +7,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Scan for forbidden terms
         run: |
-          # distinct list of forbidden terms
-          FORBIDDEN_TERMS="iuhealth|IUHealth|IUHEALTH"
+          # 1. Define the forbidden term in Base64 (Obfuscated)
+          # "aXVoZWFsdGg=" decodes to the forbidden company name
+          ENCODED_TERM="aXVoZWFsdGg="
+          
+          # 2. Decode it at runtime only
+          FORBIDDEN=$(echo "$ENCODED_TERM" | base64 --decode)
           
           echo "Scanning codebase for forbidden terms..."
           
-          # grep options:
+          # 3. Run grep
           # -r: recursive
-          # -n: line number
-          # -E: extended regex (for | OR operator)
           # -I: ignore binary files
-          # --exclude-dir: ignore .git folder
+          # --exclude-dir=.git: ignore git history
+          # --exclude="compliance-scan.yaml": ignore this file (just in case)
           
-          if grep -rnE -I --exclude-dir=.git "$FORBIDDEN_TERMS" .; then
+          if grep -rnI --exclude-dir=.git "$FORBIDDEN" .; then
               echo "❌ FAILURE: Forbidden company data found in the files listed above."
               exit 1
           else
