@@ -1,0 +1,31 @@
+name: Compliance Scan
+
+on: [push, pull_request]
+
+jobs:
+  scan-for-sensitive-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Scan for forbidden terms
+        run: |
+          # distinct list of forbidden terms
+          FORBIDDEN_TERMS="iuhealth|IUHealth|IUHEALTH"
+          
+          echo "Scanning codebase for forbidden terms..."
+          
+          # grep options:
+          # -r: recursive
+          # -n: line number
+          # -E: extended regex (for | OR operator)
+          # -I: ignore binary files
+          # --exclude-dir: ignore .git folder
+          
+          if grep -rnE -I --exclude-dir=.git "$FORBIDDEN_TERMS" .; then
+              echo "❌ FAILURE: Forbidden company data found in the files listed above."
+              exit 1
+          else
+              echo "✅ SUCCESS: No forbidden terms found."
+              exit 0
+          fi

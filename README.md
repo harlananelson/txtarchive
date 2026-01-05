@@ -114,6 +114,54 @@ export ACCESS_TOKEN="your_ask_sage_token"
 python -m txtarchive --version
 ```
 
+## ❄️ Nix Development Environment (Recommended)
+
+This project supports **Nix**, a powerful package manager that ensures every developer uses the *exact* same version of Python, Pandoc, and system libraries. This eliminates "it works on my machine" errors.
+
+### Why use Nix?
+* **Hermetic Dependencies:** Installs the correct version of `pandoc` automatically (no need for `brew install` or `apt-get`).
+* **Reproducible Builds:** The `flake.lock` file guarantees identical environments across all machines.
+* **Dual-Support:** You can still use standard `pip` / `python -m` if you prefer (see standard installation above).
+
+### 1. Install Nix (macOS / Linux)
+If you don't have Nix, install it using the Determinate Systems installer (recommended):
+```bash
+curl --proto '=https' --tlsv1.2 -sSf -L [https://install.determinate.systems/nix](https://install.determinate.systems/nix) | sh -s -- install
+
+```
+
+### 2. Enter the Dev Shell
+
+To start developing with all dependencies (Python 3.x, Pandoc, etc.) pre-configured:
+
+```bash
+# This downloads and sets up the environment in a temporary shell
+nix develop
+
+```
+
+*Once inside this shell, you can run `python -m txtarchive ...` immediately.*
+
+### 3. Build the Production Binary
+
+To create a standalone, optimized executable of `txtarchive`:
+
+```bash
+nix build
+
+```
+
+This creates a `./result` symlink. You can run the binary directly:
+
+```bash
+./result/bin/txtarchive --help
+
+```
+
+### 4. Troubleshooting
+
+* **Pandoc Errors:** If you are *not* using Nix and see a "Pandoc not found" error, you must install it manually (`brew install pandoc`). The Nix environment handles this for you automatically.
+
 ## Core Commands with Format Guidance
 
 ### `archive` - Create an Archive
