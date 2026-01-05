@@ -1,0 +1,1 @@
+python -m txtarchive unpack ../.archive/.txt output_dir/
