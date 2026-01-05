@@ -127,3 +127,7 @@ build/
 dist/
 *.egg-info/
 txtarchive.txt
+
+# Nix artifacts
+result
+result-*
