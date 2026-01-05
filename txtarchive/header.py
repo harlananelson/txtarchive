@@ -5,6 +5,10 @@ def setup_logger():
     logger = logging.getLogger('txtarchve')
     logger.setLevel(logging.INFO)
     
+    # [FIX] Stop this logger from passing events to the root logger
+    # This prevents the double-printing when basicConfig is used elsewhere
+    logger.propagate = False 
+    
     # Only add handlers if none exist already
     if not logger.handlers:
         # Create formatters
