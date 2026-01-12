@@ -91,6 +91,9 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+# Local environment management
+.direnv/
+.envrc
 
 # Spyder project settings
 .spyderproject
