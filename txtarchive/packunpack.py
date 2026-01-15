@@ -626,17 +626,39 @@ def archive_files(
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Ensured output directory exists: {output_file_path.parent}")
 
+    # Helper function MOVED HERE - before the if/else block
+    def path_matches_include_subdirs(file_path, base_directory):
+        """
+        Check if a file path should be included based on include_subdirs.
+        """
+        if not include_subdirs:
+            return True
+        
+        try:
+            rel_path = file_path.relative_to(base_directory)
+        except ValueError:
+            return False
+        
+        rel_path_str = str(rel_path).replace('\\', '/')
+        
+        for subdir in include_subdirs:
+            subdir_normalized = subdir.replace('\\', '/')
+            if rel_path_str.startswith(subdir_normalized + '/') or \
+               str(rel_path.parent).replace('\\', '/') == subdir_normalized:
+                logger.debug(f"File {rel_path} matches include_subdir: {subdir}")
+                return True
+        
+        return False
+
     # Handle explicit file list mode
     if explicit_files is not None:
         logger.info(f"Using explicit file list mode with {len(explicit_files)} files")
         
         for file_name in explicit_files:
-            # Support both absolute paths and relative to directory
             file_path = Path(file_name)
             if not file_path.is_absolute():
                 file_path = directory / file_name
             
-            # Validate file exists
             if not file_path.exists():
                 logger.error(f"Explicit file not found: {file_path}")
                 continue
@@ -645,17 +667,14 @@ def archive_files(
                 logger.warning(f"Skipping non-file path: {file_path}")
                 continue
             
-            # Calculate relative path for archive
             try:
                 rel_path = file_path.relative_to(directory)
             except ValueError:
-                # File is outside directory, use just the filename
                 rel_path = Path(file_path.name)
                 logger.warning(f"File {file_path} is outside source directory, using filename only: {rel_path}")
             
             logger.info(f"Processing explicit file: {file_path}")
             
-            # Process the file content
             content = None
             
             if file_path.suffix == ".ipynb":
@@ -695,47 +714,7 @@ def archive_files(
                 file_list.append((rel_path, content))
                 processed_files.add(str(rel_path))
         
-        # Skip to the output generation section
         logger.info(f"Processed {len(file_list)} explicit files")
-    
-    # Helper function to check if a path matches include_subdirs criteria
-    def path_matches_include_subdirs(file_path, base_directory):
-        """
-        Check if a file path should be included based on include_subdirs.
-        
-        Improved logic:
-        1. If include_subdirs is empty, include all files (old behavior)
-        2. If include_subdirs is specified, check if ANY part of the relative path
-           starts with any of the include_subdirs values
-        
-        Examples:
-        - include_subdirs = ['R', 'inst/raw', 'HOWTO']
-        - R/script.R -> matches 'R'
-        - inst/raw/data.csv -> matches 'inst/raw'
-        - inst/other/file.txt -> does NOT match
-        - HOWTO/guide.md -> matches 'HOWTO'
-        """
-        if not include_subdirs:
-            return True
-        
-        try:
-            rel_path = file_path.relative_to(base_directory)
-        except ValueError:
-            return False
-        
-        # Convert to string with forward slashes for consistent comparison
-        rel_path_str = str(rel_path).replace('\\', '/')
-        
-        # Check if the relative path starts with any of the include_subdirs
-        for subdir in include_subdirs:
-            subdir_normalized = subdir.replace('\\', '/')
-            # Check if the file is in this subdirectory or deeper
-            if rel_path_str.startswith(subdir_normalized + '/') or \
-               str(rel_path.parent).replace('\\', '/') == subdir_normalized:
-                logger.debug(f"File {rel_path} matches include_subdir: {subdir}")
-                return True
-        
-        return False
 
     else:
         # Standard directory scanning mode (when explicit_files is None)
@@ -765,7 +744,6 @@ def archive_files(
         file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
 
         for path in file_iterator:
-            # Check exclusion - check if any parent directory is in exclude_dirs
             if include_subdirectories:
                 path_parts = path.relative_to(directory).parts
                 if any(part in exclude_dirs for part in path_parts):
@@ -773,13 +751,10 @@ def archive_files(
         
             rel_path = path.relative_to(directory)
         
-            # NEW: Check if path matches include_subdirs criteria
             if include_subdirs and not path_matches_include_subdirs(path, directory):
-                # File is not in an included subdirectory, skip unless it's a root file
-                if path.parent != directory:  # Not a root-level file
+                if path.parent != directory:
                     continue
         
-            # Rest of the logic remains the same
             is_root_file = rel_path.parent == Path(".")
         
             if path.is_file():
@@ -812,7 +787,12 @@ def archive_files(
                                     elif cell["cell_type"] == "markdown" and cell.get("source"):
                                         cell_content = "".join(cell.get("source", []))
                                         if cell_content.strip():
-                                            content += f"# Markdown Cell {cell_idx}\n{cell_content}\n\n"
+                                            content += f"# Markdown Cell {cell_idx}\n"
+                                            content += '"""\n'
+                                            content += cell_content
+                                            if not cell_content.endswith('\n'):
+                                                content += '\n'
+                                            content += '"""\n\n'
                             else:
                                 content = json.dumps(remove_outputs_from_code_cells(notebook_content), indent=4)
                     except Exception as e:
@@ -830,7 +810,7 @@ def archive_files(
                     file_list.append((rel_path, content))
                     processed_files.add(str(rel_path))
 
-        # Rest of the function continues as before...
+    # Rest of the function continues here (sorting, TOC, output)...
     file_list.sort(key=lambda x: str(x[0]))
     all_contents += "# TABLE OF CONTENTS\n"
     all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
@@ -839,11 +819,13 @@ def archive_files(
     if llm_friendly:
         for idx, (rel_path, content) in enumerate(file_list, 1):
             all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"
-            all_contents += content
+            escaped_content = content.replace("---\nFilename: ", "---\\nFilename: ")
+            all_contents += escaped_content
             all_contents += "\n\n"
     else:
         for rel_path, content in file_list:
-            all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+            escaped_content = content.replace("---\nFilename: ", "---\\nFilename: ")
+            all_contents += f"---\nFilename: {rel_path}\n---\n{escaped_content}\n\n"
 
     with output_file_path.open("w", encoding="utf-8") as file:
         file.write(all_contents)
@@ -860,6 +842,7 @@ def archive_files(
 
     return output_file_path
 
+    
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
     """
     Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files.
