@@ -157,9 +157,7 @@ def unpack_files(output_directory, combined_file_path, replace_existing=False):
                 output_path = output_path.with_suffix(output_path.suffix + "_copy")
                 
             with output_path.open("w", encoding="utf-8") as file:
-                # Unescape delimiter pattern that was escaped during archiving
-                unescaped_content = content.replace("---\\nFilename: ", "---\nFilename: ")
-                file.write(unescaped_content)
+                file.write(content)
                 logger.info("Unpacked file: %s", output_path)
         except Exception as e:
             logger.error(f"Error processing section for {filename}: {e}")
@@ -358,9 +356,7 @@ def unpack_llm_archive(output_directory, combined_file_path, replace_existing=Fa
         # Write the file
         try:
             with file_path.open("w", encoding="utf-8") as f:
-                # Unescape delimiter pattern that was escaped during archiving
-                unescaped_content = content.replace("---\\nFilename: ", "---\nFilename: ")
-                f.write(unescaped_content)
+                f.write(content)
             logger.info(f"Unpacked file: {file_path}")
         except Exception as e:
             logger.error(f"Error writing file {file_path}: {e}")
@@ -377,13 +373,8 @@ def auto_detect_archive_format(archive_path):
     """
     with open(archive_path, 'r', encoding='utf-8') as f:
         content = f.read(2000)  # Read first 2000 chars
-    
-    # Check for LLM-friendly format markers
-    # Look for either the header or the file separator pattern
-    if '# LLM-FRIENDLY CODE ARCHIVE' in content:
-        return 'llm-friendly'
-    elif '################################################################################\n# FILE' in content:
-        # Removed the space requirement after FILE to match "# FILE 1:" pattern
+        
+    if '################################################################################\n# FILE ' in content:
         return 'llm-friendly'
     elif '---\nFilename: ' in content:
         return 'standard'
@@ -604,6 +595,7 @@ def archive_files(
     exclude_dirs=None,
     root_files=None,
     include_subdirs=None,
+    explicit_files=None,
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
@@ -634,22 +626,10 @@ def archive_files(
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Ensured output directory exists: {output_file_path.parent}")
 
-    # Helper function to check if a path matches include_subdirs criteria
+    # Helper function MOVED HERE - before the if/else block
     def path_matches_include_subdirs(file_path, base_directory):
         """
         Check if a file path should be included based on include_subdirs.
-        
-        Improved logic:
-        1. If include_subdirs is empty, include all files (old behavior)
-        2. If include_subdirs is specified, check if ANY part of the relative path
-           starts with any of the include_subdirs values
-        
-        Examples:
-        - include_subdirs = ['R', 'inst/raw', 'HOWTO']
-        - R/script.R -> matches 'R'
-        - inst/raw/data.csv -> matches 'inst/raw'
-        - inst/other/file.txt -> does NOT match
-        - HOWTO/guide.md -> matches 'HOWTO'
         """
         if not include_subdirs:
             return True
@@ -659,13 +639,10 @@ def archive_files(
         except ValueError:
             return False
         
-        # Convert to string with forward slashes for consistent comparison
         rel_path_str = str(rel_path).replace('\\', '/')
         
-        # Check if the relative path starts with any of the include_subdirs
         for subdir in include_subdirs:
             subdir_normalized = subdir.replace('\\', '/')
-            # Check if the file is in this subdirectory or deeper
             if rel_path_str.startswith(subdir_normalized + '/') or \
                str(rel_path.parent).replace('\\', '/') == subdir_normalized:
                 logger.debug(f"File {rel_path} matches include_subdir: {subdir}")
@@ -673,68 +650,36 @@ def archive_files(
         
         return False
 
-    # Process root files first
-    for file_name in root_files:
-        path = directory / file_name
-        if not path.is_file():
-            logger.warning(f"Root file not found: {path}")
-            continue
-        if path.name.startswith((".", "#")) and path.name != ".gitignore":
-            logger.info(f"Skipping hidden root file: {path}")
-            continue
-        logger.info(f"Processing root file: {path}")
-        rel_path = path.relative_to(directory)
-        try:
-            with path.open("r", encoding="utf-8", errors="replace") as file:
-                content = file.read()
-            file_list.append((rel_path, content))
-            processed_files.add(str(rel_path))
-        except Exception as e:
-            logger.error(f"Error reading root file {path}: {e}")
-            content = f"# Error reading file: {e}\n\n"
-            file_list.append((rel_path, content))
-            processed_files.add(str(rel_path))
-
-    # Get file iterator
-    file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
-
-    for path in file_iterator:
-        # Check exclusion - check if any parent directory is in exclude_dirs
-        if include_subdirectories:
-            path_parts = path.relative_to(directory).parts
-            if any(part in exclude_dirs for part in path_parts):
-                continue
+    # Handle explicit file list mode
+    if explicit_files is not None:
+        logger.info(f"Using explicit file list mode with {len(explicit_files)} files")
         
-        rel_path = path.relative_to(directory)
-        
-        # NEW: Check if path matches include_subdirs criteria
-        if include_subdirs and not path_matches_include_subdirs(path, directory):
-            # File is not in an included subdirectory, skip unless it's a root file
-            if path.parent != directory:  # Not a root-level file
+        for file_name in explicit_files:
+            file_path = Path(file_name)
+            if not file_path.is_absolute():
+                file_path = directory / file_name
+            
+            if not file_path.exists():
+                logger.error(f"Explicit file not found: {file_path}")
                 continue
-        
-        # Rest of the logic remains the same
-        is_root_file = rel_path.parent == Path(".")
-        
-        if path.is_file():
-            is_gitignore = path.name == ".gitignore"
-            if not (is_gitignore or (not path.name.startswith((".", "#")) and path.suffix in file_types)):
+            
+            if not file_path.is_file():
+                logger.warning(f"Skipping non-file path: {file_path}")
                 continue
-            if is_root_file and path.name in root_files:
-                logger.info(f"Skipping already processed root file: {path}")
-                continue
-            if str(rel_path) in processed_files:
-                logger.info(f"Skipping already processed file: {path}")
-                continue
-            if file_prefixes and not is_gitignore and not any(path.name.startswith(prefix) for prefix in file_prefixes):
-                continue
-                
-            logger.info(f"Processing file: {path}")
+            
+            try:
+                rel_path = file_path.relative_to(directory)
+            except ValueError:
+                rel_path = Path(file_path.name)
+                logger.warning(f"File {file_path} is outside source directory, using filename only: {rel_path}")
+            
+            logger.info(f"Processing explicit file: {file_path}")
+            
             content = None
             
-            if path.suffix == ".ipynb":
+            if file_path.suffix == ".ipynb":
                 try:
-                    notebook_content = read_notebook(path)
+                    notebook_content = read_notebook(file_path)
                     if notebook_content:
                         if extract_code_only:
                             content = ""
@@ -755,21 +700,117 @@ def archive_files(
                         else:
                             content = json.dumps(remove_outputs_from_code_cells(notebook_content), indent=4)
                 except Exception as e:
-                    logger.error(f"Error processing notebook {path}: {e}")
+                    logger.error(f"Error processing notebook {file_path}: {e}")
                     content = f"# Error processing notebook: {e}\n\n"
             else:
                 try:
-                    with path.open("r", encoding="utf-8", errors="replace") as file:
+                    with file_path.open("r", encoding="utf-8", errors="replace") as file:
                         content = file.read()
                 except Exception as e:
-                    logger.error(f"Error reading file {path}: {e}")
+                    logger.error(f"Error reading file {file_path}: {e}")
                     content = f"# Error reading file: {e}\n\n"
-
+            
             if content is not None:
                 file_list.append((rel_path, content))
                 processed_files.add(str(rel_path))
+        
+        logger.info(f"Processed {len(file_list)} explicit files")
 
-    # Rest of the function continues as before...
+    else:
+        # Standard directory scanning mode (when explicit_files is None)
+        # Process root files first
+        for file_name in root_files:
+            path = directory / file_name
+            if not path.is_file():
+                logger.warning(f"Root file not found: {path}")
+                continue
+            if path.name.startswith((".", "#")) and path.name != ".gitignore":
+                logger.info(f"Skipping hidden root file: {path}")
+                continue
+            logger.info(f"Processing root file: {path}")
+            rel_path = path.relative_to(directory)
+            try:
+                with path.open("r", encoding="utf-8", errors="replace") as file:
+                    content = file.read()
+                file_list.append((rel_path, content))
+                processed_files.add(str(rel_path))
+            except Exception as e:
+                logger.error(f"Error reading root file {path}: {e}")
+                content = f"# Error reading file: {e}\n\n"
+                file_list.append((rel_path, content))
+                processed_files.add(str(rel_path))
+
+        # Get file iterator
+        file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
+
+        for path in file_iterator:
+            if include_subdirectories:
+                path_parts = path.relative_to(directory).parts
+                if any(part in exclude_dirs for part in path_parts):
+                    continue
+        
+            rel_path = path.relative_to(directory)
+        
+            if include_subdirs and not path_matches_include_subdirs(path, directory):
+                if path.parent != directory:
+                    continue
+        
+            is_root_file = rel_path.parent == Path(".")
+        
+            if path.is_file():
+                is_gitignore = path.name == ".gitignore"
+                if not (is_gitignore or (not path.name.startswith((".", "#")) and path.suffix in file_types)):
+                    continue
+                if is_root_file and path.name in root_files:
+                    logger.info(f"Skipping already processed root file: {path}")
+                    continue
+                if str(rel_path) in processed_files:
+                    logger.info(f"Skipping already processed file: {path}")
+                    continue
+                if file_prefixes and not is_gitignore and not any(path.name.startswith(prefix) for prefix in file_prefixes):
+                    continue
+                
+                logger.info(f"Processing file: {path}")
+                content = None
+            
+                if path.suffix == ".ipynb":
+                    try:
+                        notebook_content = read_notebook(path)
+                        if notebook_content:
+                            if extract_code_only:
+                                content = ""
+                                for cell_idx, cell in enumerate(notebook_content.get("cells", []), 1):
+                                    if cell["cell_type"] == "code" and cell.get("source"):
+                                        cell_content = "".join(cell.get("source", []))
+                                        if cell_content.strip():
+                                            content += f"# Cell {cell_idx}\n{cell_content}\n\n"
+                                    elif cell["cell_type"] == "markdown" and cell.get("source"):
+                                        cell_content = "".join(cell.get("source", []))
+                                        if cell_content.strip():
+                                            content += f"# Markdown Cell {cell_idx}\n"
+                                            content += '"""\n'
+                                            content += cell_content
+                                            if not cell_content.endswith('\n'):
+                                                content += '\n'
+                                            content += '"""\n\n'
+                            else:
+                                content = json.dumps(remove_outputs_from_code_cells(notebook_content), indent=4)
+                    except Exception as e:
+                        logger.error(f"Error processing notebook {path}: {e}")
+                        content = f"# Error processing notebook: {e}\n\n"
+                else:
+                    try:
+                        with path.open("r", encoding="utf-8", errors="replace") as file:
+                            content = file.read()
+                    except Exception as e:
+                        logger.error(f"Error reading file {path}: {e}")
+                        content = f"# Error reading file: {e}\n\n"
+
+                if content is not None:
+                    file_list.append((rel_path, content))
+                    processed_files.add(str(rel_path))
+
+    # Rest of the function continues here (sorting, TOC, output)...
     file_list.sort(key=lambda x: str(x[0]))
     all_contents += "# TABLE OF CONTENTS\n"
     all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
@@ -778,13 +819,11 @@ def archive_files(
     if llm_friendly:
         for idx, (rel_path, content) in enumerate(file_list, 1):
             all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"
-            # Escape delimiter pattern in content to prevent quoting problem
             escaped_content = content.replace("---\nFilename: ", "---\\nFilename: ")
             all_contents += escaped_content
             all_contents += "\n\n"
     else:
         for rel_path, content in file_list:
-            # Escape delimiter pattern in content to prevent quoting problem
             escaped_content = content.replace("---\nFilename: ", "---\\nFilename: ")
             all_contents += f"---\nFilename: {rel_path}\n---\n{escaped_content}\n\n"
 
@@ -802,6 +841,7 @@ def archive_files(
         logger.info(f"Split files created in: {split_dir}")
 
     return output_file_path
+
     
 def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
     """
@@ -877,9 +917,13 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
             logger.warning(f"Invalid file info format: {file_info}")
             continue
             
-        content_text = lines[2]
+        file_content = lines[2]
         
         output_path = output_directory / filename
+        
+        # Ensure parent directories exist
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
         if output_path.exists() and not replace_existing:
             output_path = output_path.with_stem(f"{output_path.stem}_copy")
             logger.info(f"File exists, using {output_path.name}")
@@ -901,9 +945,9 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
             "nbformat_minor": 5
         }
         
-        if content_text.strip().startswith("{"):
+        if file_content.strip().startswith("{"):
             try:
-                notebook = json.loads(content_text)
+                notebook = json.loads(file_content)
                 logger.info(f"Restored JSON notebook: {filename}")
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON in {filename}: {e}")
@@ -911,11 +955,11 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
         else:
             # Parse the text format with both code and markdown cells
             cells = []
-            content_lines = content_text.splitlines()
+            content_lines = file_content.splitlines()
             i = 0
             
             while i < len(content_lines):
-                line = content_lines[i].strip()
+                line = content_lines[i]
                 
                 # Check for markdown cell
                 if line.startswith("# Markdown Cell "):
@@ -948,18 +992,10 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
                     while i < len(content_lines):
                         if i >= len(content_lines):
                             break
-                        next_line = content_lines[i].strip()
+                        next_line = content_lines[i]
                         # Check if we've hit the next cell marker
                         if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell "):
                             break
-                        # Check for empty lines between cells (multiple consecutive empty lines usually indicate cell boundary)
-                        if not next_line and len(code_content) > 0:
-                            # Look ahead to see if next non-empty line is a cell marker
-                            j = i + 1
-                            while j < len(content_lines) and not content_lines[j].strip():
-                                j += 1
-                            if j < len(content_lines) and (content_lines[j].strip().startswith("# Cell ") or content_lines[j].strip().startswith("# Markdown Cell ")):
-                                break
                         code_content.append(content_lines[i] + '\n')
                         i += 1
                     
@@ -986,9 +1022,6 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
             markdown_cells = len([c for c in cells if c['cell_type'] == 'markdown'])
             logger.info(f"Reconstructed {code_cells} code cells and {markdown_cells} markdown cells for {filename}")
         
-        # Ensure parent directories exist
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
         try:
             with output_path.open("w", encoding="utf-8") as file:
                 json.dump(notebook, file, indent=2)
@@ -1002,8 +1035,6 @@ def run_extract_notebooks(archive_file_path, output_directory, replace_existing=
     """
     extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing)
     logger.info(f"Notebooks extracted to: {output_directory}")
-
-# [Other unchanged functions: read_notebook, remove_outputs_from_code_cells, concatenate_files, unpack_files, run_concat_no_subdirs, run_concat, run_unpack, archive_subdirectories, combine_all_archives, unpack_all_archives, create_llm_archive, archive_files, extract_notebooks_to_ipynb, run_extract_notebooks, validate_archive, generate_archive, mock_llm_call, call_llm]
 
 def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing=False):
     """
@@ -1198,7 +1229,6 @@ def run_extract_notebooks_and_quarto(archive_file_path, output_directory, replac
     extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing)
     logger.info(f"Notebooks and Quarto files extracted to: {output_directory}")
 
-# [Other unchanged functions remain as in previous artifact]
 def validate_archive(archive_file_path):
     with Path(archive_file_path).open("r", encoding="utf-8") as file:
         content = file.read()

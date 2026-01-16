@@ -1,8 +1,6 @@
 # txtarchive/__main__.py
 import argparse
 import logging
-import sys      # <--- Added for argv
-import shutil   # <--- Added for dependency checking
 from importlib.metadata import version
 from txtarchive.packunpack import archive_files, run_unpack, archive_subdirectories, run_extract_notebooks, run_extract_notebooks_and_quarto
 import os
@@ -14,6 +12,13 @@ __version__ = version("txtarchive")
 def handle_ingestion_response(response_data, file_path):
     """
     Handle the response from ingest_document with robust error checking.
+    
+    Args:
+        response_data: The response from ingest_document
+        file_path: Path of the file being ingested (for logging)
+    
+    Returns:
+        bool: True if ingestion was successful, False otherwise
     """
     if not response_data:
         logger.error(f"⚠️ No response received for {file_path}")
@@ -49,11 +54,21 @@ def archive_and_ingest(
     include_subdirs=None,
     ingestion_method="auto",
     remove_archive=False,
-    endpoint="train",           
-    test_endpoints=False        
+    endpoint="train",           # Add this parameter
+    test_endpoints=False,        # Add this parameter
+    explicit_files=None,  # ← ADD THIS LINE
 ):
     """
     Archive files and then ingest them into Ask Sage.
+    
+    Args:
+        ingestion_method (str): "directory", "archive", or "auto"
+            - "directory": Ingest files directly from directory
+            - "archive": Create archive first, then ingest
+            - "auto": Automatically choose based on project size
+        remove_archive (bool): Whether to remove the archive file after ingestion
+        endpoint (str): Ask Sage endpoint to use ('train', 'chat', 'embed', 'upload')
+        test_endpoints (bool): Whether to test all endpoints before ingestion
     """
     from pathlib import Path
     from .ask_sage import ingest_document, test_endpoints as test_all_endpoints
@@ -139,6 +154,7 @@ def archive_and_ingest(
                     total_files += 1
                     try:
                         logger.info(f"Ingesting {path} via {endpoint} endpoint")
+                        # Here you'd need to modify ingest_document to accept endpoint parameter
                         response_data = ingest_document(str(path), endpoint=endpoint)
                         
                         if handle_ingestion_response(response_data, str(path)):
@@ -168,6 +184,7 @@ def archive_and_ingest(
             exclude_dirs=exclude_dirs,
             root_files=root_files,
             include_subdirs=include_subdirs,
+            explicit_files=explicit_files,  
         )
         
         # Ingest the main archive ONLY if not splitting
@@ -282,42 +299,44 @@ def add_common_archive_args(parser):
         nargs='+',
         help='Specific subdirectories to include (e.g., lhn)'
     )
+    parser.add_argument(
+        '--explicit-files',
+        nargs='+',
+        metavar='FILE',
+        help='Explicit list of files to archive (relative to source directory or absolute paths). '
+             'Bypasses directory scanning and archives only these specific files. '
+             'Example: --explicit-files file1.ipynb file2.R "file with spaces.py"'
+    )
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    # [CHANGE 1] Dynamic program name logic
-    # If run via `nix` wrapper, sys.argv[0] is typically the full path to 'txtarchive'
-    # If run via `python -m`, it is typically '.../__main__.py'
-    prog_name = "txtarchive" if "txtarchive" in os.path.basename(sys.argv[0]) else "python -m txtarchive"
-
-    epilog = f"""
+    epilog = """
 Examples:
 # Archive Jupyter notebooks and Quarto files (LLM-friendly)
-{prog_name} archive "lhnmetadata" "lhnmetadata/lhnmetadata.txt" \\
+python -m txtarchive archive "lhnmetadata" "lhnmetadata/lhnmetadata.txt" \
     --file_types .ipynb .qmd --no-subdirectories --llm-friendly --extract-code-only
 
 # Archive with exclusions and splitting
-{prog_name} archive "txtarchive" "archive/txtarchive.txt" \\
-    --file_types .py .yaml .md \\
-    --root-files pyproject.toml README.md \\
-    --exclude-dirs .venv __pycache__ .git \\
+python -m txtarchive archive "txtarchive" "archive/txtarchive.txt" \
+    --file_types .py .yaml .md \
+    --root-files pyproject.toml README.md \
+    --exclude-dirs .venv __pycache__ .git \
     --split-output --max-tokens 75000
 
 # Archive and ingest into Ask Sage
-{prog_name} archive-and-ingest "txtarchive" "archive/txtarchive.txt" \\
-    --file_types .py .yaml .md \\
-    --root-files pyproject.toml README.md \\
-    --exclude-dirs .venv __pycache__ .git \\
+python -m txtarchive archive-and-ingest "txtarchive" "archive/txtarchive.txt" \
+    --file_types .py .yaml .md \
+    --root-files pyproject.toml README.md \
+    --exclude-dirs .venv __pycache__ .git \
     --llm-friendly --extract-code-only \
     --max-tokens 75000 --ingestion-method auto
 
 # Just ingest an existing document
-{prog_name} ingest --file "archive/txtarchive.txt"
+python -m txtarchive ingest --file "archive/txtarchive.txt"
 """
 
     parser = argparse.ArgumentParser(
-        prog=prog_name,  # [CHANGE 2] Use dynamic program name
         description="txtarchive: A utility for archiving and extracting text files, Jupyter notebooks, and Quarto files.",
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -502,15 +521,6 @@ Examples:
 
     args = parser.parse_args()
 
-    # [CHANGE 3] Runtime Dependency Check for non-Nix users
-    # We check this AFTER parse_args so that --help and --version still work.
-    if args.command and not shutil.which("pandoc"):
-        logger.error("🛑 CRITICAL ERROR: 'pandoc' not found in PATH.")
-        logger.error("   This tool requires Pandoc for document conversion.")
-        logger.error("   ACTION: Please install Pandoc (e.g., 'brew install pandoc', 'apt-get install pandoc')")
-        logger.error("   OR use the Nix environment: 'nix develop'")
-        sys.exit(1)
-
     if not args.command:
         if hasattr(args, 'version'):
             parser.parse_args(['--version'])
@@ -548,6 +558,7 @@ Examples:
             exclude_dirs=args.exclude_dirs,
             root_files=args.root_files,
             include_subdirs=args.include_subdirs,
+            explicit_files=getattr(args, 'explicit_files', None), # Pass explicit files if provided
         )
         
     elif args.command == 'archive-and-ingest':
@@ -568,7 +579,8 @@ Examples:
             ingestion_method=args.ingestion_method,
             remove_archive=args.rm_archive,
             endpoint=getattr(args, 'endpoint', 'train'),
-            test_endpoints=getattr(args, 'test_endpoints', False)
+            test_endpoints=getattr(args, 'test_endpoints', False),
+            explicit_files=getattr(args, 'explicit_files', None),
         )
         
     elif args.command == 'unpack':
