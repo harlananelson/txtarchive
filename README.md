@@ -11,7 +11,7 @@ TxtArchive supports **two distinct archive formats**:
 | Format | Separator Pattern | Purpose | Unpacking |
 |--------|------------------|---------|-----------|
 | **Standard** | `---\nFilename: path/to/file.py\n---` | Exact file reconstruction | ✅ `unpack` command |
-| **LLM-Friendly** | `# FILE 1: path/to/file.py\n###...###` | AI analysis, stripped metadata | ⚠️ `extract-notebooks` only (general unpack not yet implemented) |
+| **LLM-Friendly** | `# FILE 1: path/to/file.py\n###...###` | AI analysis, stripped metadata | ✅ `unpack` (auto-detects) or `extract-notebooks` for .ipynb |
 
 ### Format Selection Decision Tree
 
@@ -27,24 +27,25 @@ Are you creating an archive?
 | Command | Standard Format | LLM-Friendly Format | Notes |
 |---------|----------------|---------------------|-------|
 | `archive` | ✅ Creates | ✅ Creates with `--llm-friendly` | Choose format at creation |
-| `unpack` | ✅ Unpacks | ❌ **NOT SUPPORTED** | **IMPORTANT LIMITATION** |
-| `extract-notebooks` | ❌ | ✅ Extracts .ipynb | LLM format only |
+| `unpack` | ✅ Unpacks | ✅ Unpacks (auto-detects format) | Works with both formats |
+| `extract-notebooks` | ❌ | ✅ Extracts .ipynb | Reconstructs notebooks from cell markers |
 | `extract-notebooks-and-quarto` | ❌ | ✅ Extracts .ipynb + .qmd | LLM format only |
 | `archive-and-ingest` | N/A | ✅ Recommended for AI | Uses LLM format |
 
-### Critical Insight for File Transfer
+### Format Auto-Detection
 
-**If you need to unpack an archive, you MUST use standard format:**
+The `unpack` command automatically detects the archive format and uses the appropriate parser:
 
 ```bash
-# ✅ CORRECT: Standard format for unpacking
+# Both formats work with unpack (auto-detected)
 python -m txtarchive archive myproject/ archive.txt
 python -m txtarchive unpack archive.txt restored_project/
 
-# ❌ WRONG: LLM-friendly cannot be unpacked (yet)
 python -m txtarchive archive myproject/ archive.txt --llm-friendly
-python -m txtarchive unpack archive.txt restored_project/  # Will fail silently
+python -m txtarchive unpack archive.txt restored_project/  # Also works!
 ```
+
+**Note:** For Jupyter notebooks in LLM-friendly format, use `extract-notebooks` to reconstruct `.ipynb` files with proper cell structure from the `# Cell N` markers.
 
 ## Architecture Overview (for LLM Understanding)
 
@@ -206,22 +207,25 @@ python -m txtarchive archive myproject/ myproject_llm.txt \
 python -m txtarchive unpack <archive_file> <output_directory> [--replace_existing]
 ```
 
-**⚠️ FORMAT REQUIREMENT: STANDARD FORMAT ONLY**
+The `unpack` command automatically detects the archive format (standard or LLM-friendly) and extracts files accordingly.
 
-This command **only works with standard format archives**. If you try to unpack an LLM-friendly archive, it will create the directory but extract zero files.
+**Smart notebook reconstruction** (LLM-friendly archives):
+- `.ipynb` files → Reconstructed as JSON notebooks from `# Cell N` markers
+- `.py` files with `# MAGIC` patterns → Reconstructed as Databricks notebooks with `# COMMAND ----------` separators
+- All other files → Extracted as plain text
 
 **Options:**
 - `--replace_existing` - Overwrite existing files
 
 **Example:**
 ```bash
-# This works (standard format)
+# Standard format
 python -m txtarchive archive myproject/ archive.txt
 python -m txtarchive unpack archive.txt restored/ --replace_existing
 
-# This creates empty directory (LLM format - unsupported)
+# LLM-friendly format (also works - auto-detected)
 python -m txtarchive archive myproject/ archive.txt --llm-friendly
-python -m txtarchive unpack archive.txt restored/  # ❌ No files extracted
+python -m txtarchive unpack archive.txt restored/ --replace_existing
 ```
 
 ### `extract-notebooks` - Extract Jupyter Notebooks
@@ -319,17 +323,18 @@ python -m txtarchive archive-and-ingest myproject/ analysis.txt \
 
 ### Issue: "Unpack creates empty directory"
 
-**Diagnosis:** You're trying to unpack an LLM-friendly archive.
+**Diagnosis:** The archive format may not be recognized, or the archive is malformed.
 
-**Solution:** 
+**Solution:**
 ```bash
 # Check format
 head -n 10 your_archive.txt
 
-# If you see "# LLM-FRIENDLY CODE ARCHIVE", it's LLM format
-# You need to recreate in standard format:
-python -m txtarchive archive source_dir/ new_archive.txt  # No --llm-friendly flag
-python -m txtarchive unpack new_archive.txt output_dir/
+# Standard format should have: "---\nFilename: "
+# LLM-friendly format should have: "# LLM-FRIENDLY CODE ARCHIVE" and "# FILE 1:"
+
+# Both formats are supported by unpack (auto-detected)
+python -m txtarchive unpack your_archive.txt output_dir/ --replace_existing
 ```
 
 ### Issue: "extract-notebooks doesn't find files"
@@ -374,7 +379,7 @@ python -m txtarchive archive myproject/ archive.txt \
 ## API Reference for Programmatic Use
 
 ```python
-from txtarchive.packunpack import archive_files, unpack_files
+from txtarchive.packunpack import archive_files, unpack_files_auto
 
 # Create standard archive
 archive_files(
@@ -392,8 +397,8 @@ archive_files(
     llm_friendly=True  # LLM format
 )
 
-# Unpack standard format
-unpack_files(
+# Unpack any format (auto-detects)
+unpack_files_auto(
     output_directory="restored",
     combined_file_path="archive.txt",
     replace_existing=True
@@ -409,17 +414,17 @@ export ACCESS_TOKEN="your_ask_sage_api_token"
 
 ## Feature Roadmap
 
-### Current Limitations
+### Current Capabilities
 
-1. **No general unpack for LLM-friendly format** - Only `extract-notebooks` works
-2. **No auto-detection of archive format** - User must know which format they have
-3. **No format conversion utility** - Cannot convert between formats
+- **Auto-detection of archive format** - `unpack` command detects and handles both formats
+- **General unpack for LLM-friendly format** - `unpack_llm_archive()` implemented
+- **Jupyter notebook reconstruction** - Automatically rebuilds `.ipynb` files from `# Cell N` markers
+- **Databricks notebook reconstruction** - Automatically rebuilds `.py` Databricks notebooks with `# COMMAND ----------` separators and `# MAGIC` prefixes
 
 ### Planned Improvements
 
-1. Implement `unpack_llm_archive()` for general LLM format unpacking
-2. Add auto-detection in `unpack` command
-3. Add `convert` command to switch between formats
+1. Add `convert` command to switch between formats
+2. Improve error messages for malformed archives
 
 ## Contributing
 
@@ -431,28 +436,15 @@ MIT License
 
 ## Changelog
 
+### v0.2.0
+- Auto-detection of archive format in `unpack` command
+- `unpack_llm_archive()` for general LLM format unpacking
+- Improved notebook cell parsing with markdown support
+- Databricks notebook support - auto-reconstructs `.py` files with `# MAGIC` patterns
+
 ### v0.1.0
 - Initial release with archive/unpack
 - LLM-friendly format support
 - Jupyter notebook handling
 - Ask Sage integration
 - Word document conversion
-```
-
----
-
-## Summary of Changes
-
-**For txtarchive code:**
-1. Add `unpack_llm_archive()` function
-2. Add `auto_detect_archive_format()` function
-3. Modify `run_unpack()` to auto-detect and route to correct parser
-
-**For README.md:**
-1. **"Quick Reference for LLMs"** section at top with compatibility matrix
-2. **Format explanation** with visual examples of both formats
-3. **Decision trees** for format selection
-4. **Explicit warnings** about format compatibility
-5. **Troubleshooting** section specific to format issues
-6. **Workflow examples** that specify which format to use
-7. **Architecture overview** explaining the parsing logic

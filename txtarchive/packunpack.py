@@ -291,10 +291,222 @@ def archive_subdirectories(
         parent_directory, combined_archive_dir, combined_archive_name, directories
     )
 
+def _is_databricks_content(file_content):
+    """
+    Detect if file content appears to be from a Databricks notebook.
+
+    Checks for Databricks-specific patterns like # MAGIC commands.
+
+    Args:
+        file_content (str): The file content to check
+
+    Returns:
+        bool: True if content appears to be Databricks format
+    """
+    # Check for explicit Databricks header
+    if '# Databricks notebook source' in file_content:
+        return True
+    # Check for MAGIC commands (markdown, sql, python, etc.)
+    if '# MAGIC %' in file_content or '# MAGIC #' in file_content:
+        return True
+    return False
+
+
+def _reconstruct_databricks_notebook(file_content, filename):
+    """
+    Reconstruct a Databricks notebook from LLM-friendly cell markers.
+
+    Args:
+        file_content (str): The text content with # Cell N markers
+        filename (str): The filename (for logging)
+
+    Returns:
+        str: Databricks notebook source format
+    """
+    lines = []
+    lines.append("# Databricks notebook source")
+
+    content_lines = file_content.splitlines()
+    i = 0
+    cell_count = 0
+
+    while i < len(content_lines):
+        line = content_lines[i]
+
+        # Check for markdown cell
+        if line.startswith("# Markdown Cell "):
+            if cell_count > 0:
+                lines.append("")
+                lines.append("# COMMAND ----------")
+                lines.append("")
+            cell_count += 1
+
+            # Look for triple quotes on next line
+            i += 1
+            if i < len(content_lines) and content_lines[i].strip() == '"""':
+                # Start collecting markdown content
+                i += 1
+                lines.append("# MAGIC %md")
+                while i < len(content_lines):
+                    if content_lines[i].strip() == '"""':
+                        # End of markdown
+                        break
+                    # Add MAGIC prefix to markdown lines
+                    md_line = content_lines[i]
+                    lines.append(f"# MAGIC {md_line}")
+                    i += 1
+            i += 1
+
+        # Check for code cell
+        elif line.startswith("# Cell "):
+            if cell_count > 0:
+                lines.append("")
+                lines.append("# COMMAND ----------")
+                lines.append("")
+            cell_count += 1
+
+            # Collect code until next cell marker or end
+            i += 1
+            cell_lines = []
+            while i < len(content_lines):
+                next_line = content_lines[i]
+                # Check if we've hit the next cell marker
+                if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell "):
+                    break
+                cell_lines.append(content_lines[i])
+                i += 1
+
+            # Remove trailing empty lines
+            while cell_lines and not cell_lines[-1].strip():
+                cell_lines.pop()
+
+            # Add cell content
+            for cell_line in cell_lines:
+                lines.append(cell_line)
+        else:
+            i += 1
+
+    logger.info(f"Reconstructed {cell_count} cells for Databricks notebook: {filename}")
+    return '\n'.join(lines)
+
+
+def _reconstruct_notebook_from_cells(file_content, filename):
+    """
+    Reconstruct a Jupyter notebook from LLM-friendly cell markers.
+
+    Args:
+        file_content (str): The text content with # Cell N markers
+        filename (str): The filename (for logging)
+
+    Returns:
+        dict: A notebook dictionary ready for JSON serialization
+    """
+    notebook = {
+        "cells": [],
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3"
+            },
+            "language_info": {
+                "name": "python",
+                "version": "3.10.0"
+            }
+        },
+        "nbformat": 4,
+        "nbformat_minor": 5
+    }
+
+    # If content is already JSON, just parse it
+    if file_content.strip().startswith("{"):
+        try:
+            notebook = json.loads(file_content)
+            logger.info(f"Restored JSON notebook: {filename}")
+            return notebook
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in {filename}: {e}")
+            return None
+
+    # Parse the text format with both code and markdown cells
+    cells = []
+    content_lines = file_content.splitlines()
+    i = 0
+
+    while i < len(content_lines):
+        line = content_lines[i]
+
+        # Check for markdown cell
+        if line.startswith("# Markdown Cell "):
+            # Look for triple quotes on next line
+            i += 1
+            if i < len(content_lines) and content_lines[i].strip() == '"""':
+                # Start collecting markdown content
+                i += 1
+                markdown_content = []
+                while i < len(content_lines):
+                    if content_lines[i].strip() == '"""':
+                        # End of markdown
+                        break
+                    markdown_content.append(content_lines[i] + '\n')
+                    i += 1
+
+                # Create markdown cell
+                cells.append({
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": markdown_content if markdown_content else []
+                })
+            i += 1
+
+        # Check for code cell
+        elif line.startswith("# Cell "):
+            # Collect code until next cell marker or end
+            i += 1
+            code_content = []
+            while i < len(content_lines):
+                if i >= len(content_lines):
+                    break
+                next_line = content_lines[i]
+                # Check if we've hit the next cell marker
+                if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell "):
+                    break
+                code_content.append(content_lines[i] + '\n')
+                i += 1
+
+            # Remove trailing empty lines but keep internal blank lines
+            while code_content and not code_content[-1].strip():
+                code_content.pop()
+
+            # Only add cell if it has content
+            if any(line.strip() for line in code_content):
+                cells.append({
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {},
+                    "outputs": [],
+                    "source": code_content
+                })
+        else:
+            i += 1
+
+    notebook["cells"] = cells
+
+    # Count cell types for logging
+    code_cells = len([c for c in cells if c['cell_type'] == 'code'])
+    markdown_cells = len([c for c in cells if c['cell_type'] == 'markdown'])
+    logger.info(f"Reconstructed {code_cells} code cells and {markdown_cells} markdown cells for {filename}")
+
+    return notebook
+
+
 def unpack_llm_archive(output_directory, combined_file_path, replace_existing=False):
     """
     Unpack files from an LLM-friendly format archive.
-    
+
+    Automatically detects .ipynb files and reconstructs them as proper JSON notebooks
+    from the # Cell N markers. All other files are extracted as plain text.
+
     Args:
         output_directory (Path): Directory to output the unpacked files.
         combined_file_path (Path): Path to the LLM-friendly archive file.
@@ -304,17 +516,17 @@ def unpack_llm_archive(output_directory, combined_file_path, replace_existing=Fa
         combined_file_path = Path(combined_file_path)
     if isinstance(output_directory, str):
         output_directory = Path(output_directory)
-    
+
     with combined_file_path.open("r", encoding="utf-8") as file:
         content = file.read()
-    
+
     # Parse LLM-friendly format: split on file separators
     sections = content.split("################################################################################\n# FILE ")
-    
+
     if len(sections) <= 1:
         logger.warning("No files found in LLM-friendly archive format")
         return
-    
+
     # Create output directory if needed
     if not output_directory.exists():
         try:
@@ -323,44 +535,65 @@ def unpack_llm_archive(output_directory, combined_file_path, replace_existing=Fa
         except Exception as e:
             logger.error(f"Error creating directory: {e}")
             return
-    
+
     # Process each file section
     for section in sections[1:]:  # Skip the header before first file
         # Parse: "N: filename\n###...###\n\ncontent"
         lines = section.split('\n', 2)
         if len(lines) < 3:
             continue
-            
+
         # Extract filename from "N: filename"
         first_line = lines[0]
         if ': ' in first_line:
             filename = first_line.split(': ', 1)[1].strip()
         else:
             continue
-        
+
         # Skip the separator line (line 1 is "###...###")
         # Content starts at line 2
-        content = lines[2] if len(lines) > 2 else ""
-        
+        file_content = lines[2] if len(lines) > 2 else ""
+
         # Create file path
         file_path = output_directory / filename
-        
+
         # Check if file exists and handle accordingly
         if file_path.exists() and not replace_existing:
             logger.info(f"Skipped existing file: {file_path}")
             continue
-        
+
         # Create parent directories if needed
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Write the file
-        try:
-            with file_path.open("w", encoding="utf-8") as f:
-                f.write(content)
-            logger.info(f"Unpacked file: {file_path}")
-        except Exception as e:
-            logger.error(f"Error writing file {file_path}: {e}")
-    
+
+        # Handle .ipynb files specially - reconstruct as JSON notebook
+        if filename.endswith('.ipynb'):
+            notebook = _reconstruct_notebook_from_cells(file_content, filename)
+            if notebook is None:
+                continue
+            try:
+                with file_path.open("w", encoding="utf-8") as f:
+                    json.dump(notebook, f, indent=2)
+                logger.info(f"Unpacked notebook: {file_path}")
+            except Exception as e:
+                logger.error(f"Error writing notebook {file_path}: {e}")
+        # Handle Databricks notebooks (.py files with MAGIC commands or cell markers)
+        elif filename.endswith('.py') and _is_databricks_content(file_content):
+            databricks_content = _reconstruct_databricks_notebook(file_content, filename)
+            try:
+                with file_path.open("w", encoding="utf-8") as f:
+                    f.write(databricks_content)
+                logger.info(f"Unpacked Databricks notebook: {file_path}")
+            except Exception as e:
+                logger.error(f"Error writing Databricks notebook {file_path}: {e}")
+        else:
+            # Write other files as plain text
+            try:
+                with file_path.open("w", encoding="utf-8") as f:
+                    f.write(file_content)
+                logger.info(f"Unpacked file: {file_path}")
+            except Exception as e:
+                logger.error(f"Error writing file {file_path}: {e}")
+
     logger.info(f"Files unpacked into: {output_directory}")
 
 
