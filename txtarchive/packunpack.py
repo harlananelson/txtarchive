@@ -371,7 +371,7 @@ def _reconstruct_databricks_notebook(file_content, filename):
             while i < len(content_lines):
                 next_line = content_lines[i]
                 # Check if we've hit the next cell marker
-                if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell "):
+                if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell ") or next_line.startswith("# Raw Cell "):
                     break
                 cell_lines.append(content_lines[i])
                 i += 1
@@ -459,6 +459,29 @@ def _reconstruct_notebook_from_cells(file_content, filename):
                 })
             i += 1
 
+        # Check for raw cell (e.g., Quarto YAML headers)
+        elif line.startswith("# Raw Cell "):
+            # Look for triple quotes on next line
+            i += 1
+            if i < len(content_lines) and content_lines[i].strip() == '"""':
+                # Start collecting raw content
+                i += 1
+                raw_content = []
+                while i < len(content_lines):
+                    if content_lines[i].strip() == '"""':
+                        # End of raw cell
+                        break
+                    raw_content.append(content_lines[i] + '\n')
+                    i += 1
+
+                # Create raw cell
+                cells.append({
+                    "cell_type": "raw",
+                    "metadata": {},
+                    "source": raw_content if raw_content else []
+                })
+            i += 1
+
         # Check for code cell
         elif line.startswith("# Cell "):
             # Collect code until next cell marker or end
@@ -469,7 +492,7 @@ def _reconstruct_notebook_from_cells(file_content, filename):
                     break
                 next_line = content_lines[i]
                 # Check if we've hit the next cell marker
-                if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell "):
+                if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell ") or next_line.startswith("# Raw Cell "):
                     break
                 code_content.append(content_lines[i] + '\n')
                 i += 1
@@ -495,7 +518,8 @@ def _reconstruct_notebook_from_cells(file_content, filename):
     # Count cell types for logging
     code_cells = len([c for c in cells if c['cell_type'] == 'code'])
     markdown_cells = len([c for c in cells if c['cell_type'] == 'markdown'])
-    logger.info(f"Reconstructed {code_cells} code cells and {markdown_cells} markdown cells for {filename}")
+    raw_cells = len([c for c in cells if c['cell_type'] == 'raw'])
+    logger.info(f"Reconstructed {code_cells} code cells, {markdown_cells} markdown cells, and {raw_cells} raw cells for {filename}")
 
     return notebook
 
@@ -795,6 +819,15 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
                             if not cell_content.endswith('\n'):
                                 all_contents += '\n'
                             all_contents += '"""\n\n'
+                    elif cell["cell_type"] == "raw":
+                        cell_content = "".join(cell.get("source", []))
+                        if cell_content.strip():
+                            all_contents += f"# Raw Cell {cell_idx}\n"
+                            all_contents += '"""\n'
+                            all_contents += cell_content
+                            if not cell_content.endswith('\n'):
+                                all_contents += '\n'
+                            all_contents += '"""\n\n'
             except Exception as e:
                 logger.error(f"Error processing notebook {path}: {e}")
                 all_contents += f"# Error processing notebook: {e}\n\n"
@@ -930,6 +963,15 @@ def archive_files(
                                         if not cell_content.endswith('\n'):
                                             content += '\n'
                                         content += '"""\n\n'
+                                elif cell["cell_type"] == "raw" and cell.get("source"):
+                                    cell_content = "".join(cell.get("source", []))
+                                    if cell_content.strip():
+                                        content += f"# Raw Cell {cell_idx}\n"
+                                        content += '"""\n'
+                                        content += cell_content
+                                        if not cell_content.endswith('\n'):
+                                            content += '\n'
+                                        content += '"""\n\n'
                         else:
                             content = json.dumps(remove_outputs_from_code_cells(notebook_content), indent=4)
                 except Exception as e:
@@ -1021,6 +1063,15 @@ def archive_files(
                                         cell_content = "".join(cell.get("source", []))
                                         if cell_content.strip():
                                             content += f"# Markdown Cell {cell_idx}\n"
+                                            content += '"""\n'
+                                            content += cell_content
+                                            if not cell_content.endswith('\n'):
+                                                content += '\n'
+                                            content += '"""\n\n'
+                                    elif cell["cell_type"] == "raw" and cell.get("source"):
+                                        cell_content = "".join(cell.get("source", []))
+                                        if cell_content.strip():
+                                            content += f"# Raw Cell {cell_idx}\n"
                                             content += '"""\n'
                                             content += cell_content
                                             if not cell_content.endswith('\n'):
@@ -1208,7 +1259,7 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
                                 break
                             markdown_content.append(content_lines[i] + '\n')
                             i += 1
-                        
+
                         # Create markdown cell
                         cells.append({
                             "cell_type": "markdown",
@@ -1216,7 +1267,30 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
                             "source": markdown_content if markdown_content else []
                         })
                     i += 1
-                    
+
+                # Check for raw cell (e.g., Quarto YAML headers)
+                elif line.startswith("# Raw Cell "):
+                    # Look for triple quotes on next line
+                    i += 1
+                    if i < len(content_lines) and content_lines[i].strip() == '"""':
+                        # Start collecting raw content
+                        i += 1
+                        raw_content = []
+                        while i < len(content_lines):
+                            if content_lines[i].strip() == '"""':
+                                # End of raw cell
+                                break
+                            raw_content.append(content_lines[i] + '\n')
+                            i += 1
+
+                        # Create raw cell
+                        cells.append({
+                            "cell_type": "raw",
+                            "metadata": {},
+                            "source": raw_content if raw_content else []
+                        })
+                    i += 1
+
                 # Check for code cell
                 elif line.startswith("# Cell "):
                     # Collect code until next cell marker or end
@@ -1227,15 +1301,15 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
                             break
                         next_line = content_lines[i]
                         # Check if we've hit the next cell marker
-                        if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell "):
+                        if next_line.startswith("# Cell ") or next_line.startswith("# Markdown Cell ") or next_line.startswith("# Raw Cell "):
                             break
                         code_content.append(content_lines[i] + '\n')
                         i += 1
-                    
+
                     # Remove trailing empty lines but keep internal blank lines
                     while code_content and not code_content[-1].strip():
                         code_content.pop()
-                    
+
                     # Only add cell if it has content
                     if any(line.strip() for line in code_content):
                         cells.append({
@@ -1249,11 +1323,12 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
                     i += 1
             
             notebook["cells"] = cells
-            
+
             # Count cell types for logging
             code_cells = len([c for c in cells if c['cell_type'] == 'code'])
             markdown_cells = len([c for c in cells if c['cell_type'] == 'markdown'])
-            logger.info(f"Reconstructed {code_cells} code cells and {markdown_cells} markdown cells for {filename}")
+            raw_cells = len([c for c in cells if c['cell_type'] == 'raw'])
+            logger.info(f"Reconstructed {code_cells} code cells, {markdown_cells} markdown cells, and {raw_cells} raw cells for {filename}")
         
         try:
             with output_path.open("w", encoding="utf-8") as file:
