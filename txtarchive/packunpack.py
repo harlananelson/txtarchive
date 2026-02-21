@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from .header import logger
 from datetime import datetime
@@ -390,6 +391,39 @@ def _reconstruct_databricks_notebook(file_content, filename):
     return '\n'.join(lines)
 
 
+def _detect_notebook_kernel(content):
+    """Detect notebook language from content and return appropriate kernel metadata."""
+    is_r = bool(
+        re.search(r'\blibrary\(', content) or
+        re.search(r'\bpacman::p_load\(', content) or
+        re.search(r'\btidyverse\b', content) or
+        re.search(r'\btidymodels\b', content) or
+        re.search(r'\btar_load\(', content)
+    )
+    if is_r:
+        return {
+            "kernelspec": {
+                "display_name": "R",
+                "language": "R",
+                "name": "ir"
+            },
+            "language_info": {
+                "name": "R"
+            }
+        }
+    return {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3"
+        },
+        "language_info": {
+            "name": "python",
+            "version": "3.10.0"
+        }
+    }
+
+
 def _reconstruct_notebook_from_cells(file_content, filename):
     """
     Reconstruct a Jupyter notebook from LLM-friendly cell markers.
@@ -403,17 +437,7 @@ def _reconstruct_notebook_from_cells(file_content, filename):
     """
     notebook = {
         "cells": [],
-        "metadata": {
-            "kernelspec": {
-                "display_name": "Python 3",
-                "language": "python",
-                "name": "python3"
-            },
-            "language_info": {
-                "name": "python",
-                "version": "3.10.0"
-            }
-        },
+        "metadata": _detect_notebook_kernel(file_content),
         "nbformat": 4,
         "nbformat_minor": 5
     }
@@ -1214,21 +1238,11 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
             
         notebook = {
             "cells": [],
-            "metadata": {
-                "kernelspec": {
-                    "display_name": "Python 3",
-                    "language": "python",
-                    "name": "python3"
-                },
-                "language_info": {
-                    "name": "python",
-                    "version": "3.10.0"
-                }
-            },
+            "metadata": _detect_notebook_kernel(file_content),
             "nbformat": 4,
             "nbformat_minor": 5
         }
-        
+
         if file_content.strip().startswith("{"):
             try:
                 notebook = json.loads(file_content)
@@ -1442,20 +1456,11 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
         if filename.endswith(".ipynb"):
             notebook = {
                 "cells": [],
-                "metadata": {
-                    "kernelspec": {
-                        "display_name": "Python 3",
-                        "language": "python",
-                        "name": "python3"
-                    },
-                    "language_info": {
-                        "name": "python"
-                    }
-                },
+                "metadata": _detect_notebook_kernel(content),
                 "nbformat": 4,
                 "nbformat_minor": 5
             }
-            
+
             if is_llm_friendly:
                 cells = []
                 current_cell = []

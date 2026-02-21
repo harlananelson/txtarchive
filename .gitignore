@@ -138,3 +138,9 @@ txtarchive.txt
 # Nix artifacts
 result
 result-*
+
+# Claude Code
+.claude/
+
+# Logs
+logs/
