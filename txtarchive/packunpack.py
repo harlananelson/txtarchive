@@ -855,6 +855,17 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
             except Exception as e:
                 logger.error(f"Error processing notebook {path}: {e}")
                 all_contents += f"# Error processing notebook: {e}\n\n"
+        elif path.suffix == ".html":
+            try:
+                from .html_converter import convert_html_to_markdown_text
+                with path.open("r", encoding="utf-8", errors="replace") as f:
+                    html_content = f.read()
+                content = convert_html_to_markdown_text(html_content)
+                all_contents += content
+                all_contents += "\n\n"
+            except Exception as e:
+                logger.error(f"Error converting HTML {path}: {e}")
+                all_contents += f"# Error converting HTML: {e}\n\n"
         else:
             try:
                 with path.open("r", encoding="utf-8", errors="replace") as file:
@@ -864,10 +875,10 @@ def create_llm_archive(directory, output_file_path, file_types=[".py", ".yaml", 
             except Exception as e:
                 logger.error(f"Error reading {path}: {e}")
                 all_contents += f"# Error reading file: {e}\n\n"
-    
+
     with output_file_path.open("w", encoding="utf-8") as file:
         file.write(all_contents)
-    
+
     logger.info(f"LLM-friendly archive created at: {output_file_path}")
     return output_file_path
 
@@ -1001,6 +1012,15 @@ def archive_files(
                 except Exception as e:
                     logger.error(f"Error processing notebook {file_path}: {e}")
                     content = f"# Error processing notebook: {e}\n\n"
+            elif file_path.suffix == ".html":
+                try:
+                    from .html_converter import convert_html_to_markdown_text
+                    with file_path.open("r", encoding="utf-8", errors="replace") as f:
+                        html_content = f.read()
+                    content = convert_html_to_markdown_text(html_content)
+                except Exception as e:
+                    logger.error(f"Error converting HTML {file_path}: {e}")
+                    content = f"# Error converting HTML: {e}\n\n"
             else:
                 try:
                     with file_path.open("r", encoding="utf-8", errors="replace") as file:
@@ -1008,11 +1028,11 @@ def archive_files(
                 except Exception as e:
                     logger.error(f"Error reading file {file_path}: {e}")
                     content = f"# Error reading file: {e}\n\n"
-            
+
             if content is not None:
                 file_list.append((rel_path, content))
                 processed_files.add(str(rel_path))
-        
+
         logger.info(f"Processed {len(file_list)} explicit files")
 
     else:
@@ -1106,6 +1126,15 @@ def archive_files(
                     except Exception as e:
                         logger.error(f"Error processing notebook {path}: {e}")
                         content = f"# Error processing notebook: {e}\n\n"
+                elif path.suffix == ".html":
+                    try:
+                        from .html_converter import convert_html_to_markdown_text
+                        with path.open("r", encoding="utf-8", errors="replace") as f:
+                            html_content = f.read()
+                        content = convert_html_to_markdown_text(html_content)
+                    except Exception as e:
+                        logger.error(f"Error converting HTML {path}: {e}")
+                        content = f"# Error converting HTML: {e}\n\n"
                 else:
                     try:
                         with path.open("r", encoding="utf-8", errors="replace") as file:

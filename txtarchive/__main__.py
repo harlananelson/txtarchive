@@ -519,6 +519,77 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         help='Replace existing .ipynb and .qmd files in the output directory'
     )
 
+    # Convert Word Command
+    convert_word_parser = subparsers.add_parser(
+        'convert-word',
+        help='Convert Word documents (.docx) to markdown',
+        description='Convert Word documents to clean markdown format.'
+    )
+    convert_word_parser.add_argument(
+        'input_path',
+        type=str,
+        help='Path to a .docx file or directory containing .docx files'
+    )
+    convert_word_parser.add_argument(
+        'output_path',
+        type=str,
+        nargs='?',
+        default=None,
+        help='Output path for markdown file (default: same name with .md extension)'
+    )
+    convert_word_parser.add_argument(
+        '--method',
+        choices=['auto', 'mammoth', 'pandoc', 'docx', 'basic'],
+        default='auto',
+        help='Conversion method (default: auto)'
+    )
+    convert_word_parser.add_argument(
+        '--replace-existing',
+        action='store_true',
+        help='Overwrite existing markdown files'
+    )
+
+    # Convert HTML Command
+    convert_html_parser = subparsers.add_parser(
+        'convert-html',
+        help='Convert HTML files to markdown',
+        description='Convert Quarto-rendered or other HTML files to clean markdown, with optional base64 image extraction.'
+    )
+    convert_html_parser.add_argument(
+        'input_path',
+        type=str,
+        help='Path to an .html file or directory containing .html files'
+    )
+    convert_html_parser.add_argument(
+        'output_path',
+        type=str,
+        nargs='?',
+        default=None,
+        help='Output path for markdown file (default: same name with .md extension)'
+    )
+    convert_html_parser.add_argument(
+        '--method',
+        choices=['auto', 'pandoc', 'regex'],
+        default='auto',
+        help='Conversion method (default: auto)'
+    )
+    convert_html_parser.add_argument(
+        '--no-extract-images',
+        action='store_true',
+        help='Do not extract base64 images to files; use placeholders instead'
+    )
+    convert_html_parser.add_argument(
+        '--image-dir',
+        type=str,
+        default=None,
+        help='Output directory for extracted images (default: <input_stem>_images/)'
+    )
+    convert_html_parser.add_argument(
+        '--replace-existing',
+        action='store_true',
+        help='Overwrite existing markdown files'
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -600,6 +671,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         
     elif args.command == 'convert-word':
         from pathlib import Path
+        from .word_converter import convert_word_to_markdown, convert_word_documents_in_directory
         input_path = Path(args.input_path)
         
         if input_path.is_file():
@@ -629,6 +701,47 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         else:
             logger.error(f"Input path does not exist: {input_path}")
         
+    elif args.command == 'convert-html':
+        from pathlib import Path
+        from .html_converter import convert_html_to_markdown, convert_html_documents_in_directory
+        input_path = Path(args.input_path)
+        extract_images = not args.no_extract_images
+        image_dir = Path(args.image_dir) if args.image_dir else None
+
+        if input_path.is_file():
+            # Convert single file
+            output_path = args.output_path
+            if output_path is None:
+                output_path = input_path.with_suffix('.md')
+            else:
+                output_path = Path(output_path)
+
+            try:
+                markdown_content = convert_html_to_markdown(
+                    input_path, method=args.method,
+                    extract_images=extract_images,
+                    image_output_dir=image_dir
+                )
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(markdown_content)
+                logger.info(f"Successfully converted: {input_path} -> {output_path}")
+            except Exception as e:
+                logger.error(f"Failed to convert {input_path}: {e}")
+
+        elif input_path.is_dir():
+            # Convert directory of files
+            output_dir = Path(args.output_path) if args.output_path else input_path
+            converted_files = convert_html_documents_in_directory(
+                input_path,
+                output_dir,
+                method=args.method,
+                replace_existing=args.replace_existing,
+                extract_images=extract_images
+            )
+            logger.info(f"Converted {len(converted_files)} HTML documents in {input_path}")
+        else:
+            logger.error(f"Input path does not exist: {input_path}")
+
     elif args.command == 'generate':
         logger.info(f"Generating archive from {args.study_plan_path} and {args.lhn_archive_path}")
         from txtarchive.packunpack import generate_archive
