@@ -240,12 +240,14 @@ def run_concat(
     concatenate_files(current_directory, combined_files, file_types=file_types)
 
 # Modify run_unpack to use auto-detection
-def run_unpack(output_directory, combined_file_path, replace_existing=False):
+def run_unpack(output_directory, combined_file_path, replace_existing=False, kernel=None):
     """Run unpack with auto-detection."""
     logger.info(
         f"Unpacking files from {combined_file_path} to {output_directory} using replace_existing={replace_existing}"
     )
-    unpack_files_auto(output_directory, combined_file_path, replace_existing)
+    if kernel:
+        logger.info(f"Using explicit kernel: {kernel}")
+    unpack_files_auto(output_directory, combined_file_path, replace_existing, kernel=kernel)
     logger.info(f"Files have been unpacked into: {output_directory}")
 
 
@@ -391,8 +393,49 @@ def _reconstruct_databricks_notebook(file_content, filename):
     return '\n'.join(lines)
 
 
-def _detect_notebook_kernel(content):
-    """Detect notebook language from content and return appropriate kernel metadata."""
+def _make_kernel_metadata(kernel_name):
+    """Build kernel metadata from an explicit kernel name.
+
+    Recognizes common R kernel names (containing 'r' or 'ir') and treats
+    everything else as a Python kernel.  The *display_name* is set to the
+    kernel name itself so Jupyter shows a recognizable label.
+
+    Args:
+        kernel_name (str): Jupyter kernel name, e.g. ``r_env``,
+            ``pyspark-lhn-dev``, ``ir``, ``python3``.
+
+    Returns:
+        dict: Notebook-level ``metadata`` dict with ``kernelspec`` and
+        ``language_info`` keys.
+    """
+    is_r = kernel_name in ("ir", "r_env") or kernel_name.startswith("r_")
+    if is_r:
+        return {
+            "kernelspec": {
+                "display_name": kernel_name,
+                "language": "R",
+                "name": kernel_name,
+            },
+            "language_info": {"name": "R"},
+        }
+    return {
+        "kernelspec": {
+            "display_name": kernel_name,
+            "language": "python",
+            "name": kernel_name,
+        },
+        "language_info": {"name": "python", "version": "3.10.0"},
+    }
+
+
+def _detect_notebook_kernel(content, kernel=None):
+    """Detect notebook language from content and return appropriate kernel metadata.
+
+    If *kernel* is given it takes precedence over auto-detection.
+    """
+    if kernel:
+        return _make_kernel_metadata(kernel)
+
     is_r = bool(
         re.search(r'\blibrary\(', content) or
         re.search(r'\bpacman::p_load\(', content) or
@@ -424,20 +467,22 @@ def _detect_notebook_kernel(content):
     }
 
 
-def _reconstruct_notebook_from_cells(file_content, filename):
+def _reconstruct_notebook_from_cells(file_content, filename, kernel=None):
     """
     Reconstruct a Jupyter notebook from LLM-friendly cell markers.
 
     Args:
         file_content (str): The text content with # Cell N markers
         filename (str): The filename (for logging)
+        kernel (str, optional): Explicit Jupyter kernel name to use instead
+            of auto-detection (e.g. ``r_env``, ``pyspark-lhn-dev``).
 
     Returns:
         dict: A notebook dictionary ready for JSON serialization
     """
     notebook = {
         "cells": [],
-        "metadata": _detect_notebook_kernel(file_content),
+        "metadata": _detect_notebook_kernel(file_content, kernel=kernel),
         "nbformat": 4,
         "nbformat_minor": 5
     }
@@ -548,7 +593,7 @@ def _reconstruct_notebook_from_cells(file_content, filename):
     return notebook
 
 
-def unpack_llm_archive(output_directory, combined_file_path, replace_existing=False):
+def unpack_llm_archive(output_directory, combined_file_path, replace_existing=False, kernel=None):
     """
     Unpack files from an LLM-friendly format archive.
 
@@ -559,6 +604,8 @@ def unpack_llm_archive(output_directory, combined_file_path, replace_existing=Fa
         output_directory (Path): Directory to output the unpacked files.
         combined_file_path (Path): Path to the LLM-friendly archive file.
         replace_existing (bool): Whether to replace existing files.
+        kernel (str, optional): Explicit Jupyter kernel name for notebooks
+            (e.g. ``r_env``, ``pyspark-lhn-dev``).  Overrides auto-detection.
     """
     if isinstance(combined_file_path, str):
         combined_file_path = Path(combined_file_path)
@@ -615,7 +662,7 @@ def unpack_llm_archive(output_directory, combined_file_path, replace_existing=Fa
 
         # Handle .ipynb files specially - reconstruct as JSON notebook
         if filename.endswith('.ipynb'):
-            notebook = _reconstruct_notebook_from_cells(file_content, filename)
+            notebook = _reconstruct_notebook_from_cells(file_content, filename, kernel=kernel)
             if notebook is None:
                 continue
             try:
@@ -664,16 +711,16 @@ def auto_detect_archive_format(archive_path):
         return 'standard'
 
 
-def unpack_files_auto(output_directory, combined_file_path, replace_existing=False):
+def unpack_files_auto(output_directory, combined_file_path, replace_existing=False, kernel=None):
     """
     Auto-detect format and unpack accordingly.
     """
     format_type = auto_detect_archive_format(combined_file_path)
-    
+
     logger.info(f"Detected archive format: {format_type}")
-    
+
     if format_type == 'llm-friendly':
-        return unpack_llm_archive(output_directory, combined_file_path, replace_existing)
+        return unpack_llm_archive(output_directory, combined_file_path, replace_existing, kernel=kernel)
     else:
         return unpack_files(output_directory, combined_file_path, replace_existing)
 
@@ -1180,7 +1227,7 @@ def archive_files(
     return output_file_path
 
     
-def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False):
+def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing=False, kernel=None):
     """
     Extract Jupyter notebooks from an LLM-friendly text archive into .ipynb files.
     Now handles both code cells and markdown cells.
@@ -1189,6 +1236,7 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
         archive_file_path (Path): Path to the LLM-friendly archive file or directory of split files.
         output_directory (Path): Directory to save the reconstructed .ipynb files.
         replace_existing (bool): Whether to overwrite existing files (default: False).
+        kernel (str, optional): Explicit Jupyter kernel name. Overrides auto-detection.
     """
     archive_file_path = Path(archive_file_path)
     output_directory = Path(output_directory)
@@ -1267,7 +1315,7 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
             
         notebook = {
             "cells": [],
-            "metadata": _detect_notebook_kernel(file_content),
+            "metadata": _detect_notebook_kernel(file_content, kernel=kernel),
             "nbformat": 4,
             "nbformat_minor": 5
         }
@@ -1380,14 +1428,14 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
         except Exception as e:
             logger.error(f"Error writing {output_path}: {e}")
 
-def run_extract_notebooks(archive_file_path, output_directory, replace_existing=False):
+def run_extract_notebooks(archive_file_path, output_directory, replace_existing=False, kernel=None):
     """
     Wrapper for extract_notebooks_to_ipynb.
     """
-    extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing)
+    extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_existing, kernel=kernel)
     logger.info(f"Notebooks extracted to: {output_directory}")
 
-def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing=False):
+def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing=False, kernel=None):
     """
     Extract Jupyter notebooks and Quarto files from an LLM-friendly or standard text archive.
 
@@ -1395,6 +1443,7 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
         archive_file_path (Path): Path to the archive file or directory of split files.
         output_directory (Path): Directory to save the reconstructed .ipynb and .qmd files.
         replace_existing (bool): Whether to overwrite existing files (default: False).
+        kernel (str, optional): Explicit Jupyter kernel name. Overrides auto-detection.
     """
     archive_file_path = Path(archive_file_path)
     output_directory = Path(output_directory)
@@ -1485,7 +1534,7 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
         if filename.endswith(".ipynb"):
             notebook = {
                 "cells": [],
-                "metadata": _detect_notebook_kernel(content),
+                "metadata": _detect_notebook_kernel(content, kernel=kernel),
                 "nbformat": 4,
                 "nbformat_minor": 5
             }
@@ -1564,11 +1613,11 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
             except Exception as e:
                 logger.error(f"Error writing {output_path}: {e}")
 
-def run_extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing=False):
+def run_extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing=False, kernel=None):
     """
     Wrapper for extract_notebooks_and_quarto.
     """
-    extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing)
+    extract_notebooks_and_quarto(archive_file_path, output_directory, replace_existing, kernel=kernel)
     logger.info(f"Notebooks and Quarto files extracted to: {output_directory}")
 
 def validate_archive(archive_file_path):

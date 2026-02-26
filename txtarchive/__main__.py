@@ -412,6 +412,12 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         action='store_true',
         help='Replace existing files in the output directory'
     )
+    unpack_parser.add_argument(
+        '--kernel',
+        type=str,
+        default=None,
+        help='Jupyter kernel name for notebooks (e.g. r_env, pyspark-lhn-dev). Overrides auto-detection.'
+    )
 
     # Generate Command
     generate_parser = subparsers.add_parser(
@@ -496,6 +502,12 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         action='store_true',
         help='Replace existing .ipynb files in the output directory'
     )
+    extract_nb_parser.add_argument(
+        '--kernel',
+        type=str,
+        default=None,
+        help='Jupyter kernel name for notebooks (e.g. r_env, pyspark-lhn-dev). Overrides auto-detection.'
+    )
 
     # Extract Notebooks and Quarto Command
     extract_nbq_parser = subparsers.add_parser(
@@ -517,6 +529,12 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         '--replace_existing',
         action='store_true',
         help='Replace existing .ipynb and .qmd files in the output directory'
+    )
+    extract_nbq_parser.add_argument(
+        '--kernel',
+        type=str,
+        default=None,
+        help='Jupyter kernel name for notebooks (e.g. r_env, pyspark-lhn-dev). Overrides auto-detection.'
     )
 
     # Convert Word Command
@@ -656,18 +674,18 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         
     elif args.command == 'unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
-        run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing)
+        run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing, kernel=getattr(args, 'kernel', None))
         
     elif args.command == 'archive_subdirectories':
         archive_subdirectories(args.parent_directory, args.directories, args.combined_archive_dir, args.combined_archive_name, args.file_types)
         
     elif args.command == 'extract-notebooks':
         logger.info(f"Extracting notebooks from {args.archive_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
-        run_extract_notebooks(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing)
-        
+        run_extract_notebooks(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing, kernel=getattr(args, 'kernel', None))
+
     elif args.command == 'extract-notebooks-and-quarto':
         logger.info(f"Extracting notebooks and Quarto files from {args.archive_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
-        run_extract_notebooks_and_quarto(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing)
+        run_extract_notebooks_and_quarto(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing, kernel=getattr(args, 'kernel', None))
         
     elif args.command == 'convert-word':
         from pathlib import Path
