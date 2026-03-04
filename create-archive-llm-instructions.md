@@ -314,6 +314,60 @@ content here
 """
 ```
 
+### Raw Cell Format (Critical — Quarto YAML Headers)
+
+Raw cells use **the same triple-quote format** as markdown cells. This is
+essential for Quarto YAML front matter — without `"""`, the parser skips
+the raw cell and Quarto never sees the header.
+
+```
+# Raw Cell 1
+"""
+---
+title: "Analysis Title"
+author: "Author Name"
+date: today
+format:
+  html:
+    code-fold: true
+    embed-resources: true
+    toc: true
+execute:
+  enabled: false
+---
+"""
+```
+
+**Rules:**
+1. `# Raw Cell N` on its own line
+2. Opening `"""` on the **next line** (not same line as marker)
+3. Raw content follows (typically YAML front matter with `---` delimiters)
+4. Closing `"""` on its own line
+5. Content inside quotes becomes a `cell_type: "raw"` notebook cell
+
+**WRONG — raw cell without triple quotes (content is silently lost):**
+```
+# Raw Cell 1
+---
+title: "Analysis Title"
+---
+```
+
+**CORRECT:**
+```
+# Raw Cell 1
+"""
+---
+title: "Analysis Title"
+---
+"""
+```
+
+**Why this matters:** Quarto reads YAML front matter only from raw cells,
+not markdown cells. If the raw cell is lost during unpack, the rendered
+HTML will have no title, no table of contents, no embedded resources, and
+no other format settings.
+
 ### Anti-Patterns (LLM-Friendly Format)
 
 ```

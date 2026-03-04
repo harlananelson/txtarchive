@@ -177,7 +177,32 @@ The analysis shows...
 **Format rules:**
 - Each code cell: `# Cell N` followed by code
 - Markdown cells: `# Markdown Cell N` followed by content in triple quotes `"""`
+- Raw cells: `# Raw Cell N` followed by content in triple quotes `"""`
 - Two blank lines between cells
+
+**Quarto YAML header (must be first cell, must be a raw cell):**
+```
+# Raw Cell 1
+"""
+---
+title: "Analysis Title"
+format:
+  html:
+    embed-resources: true
+---
+"""
+
+# Markdown Cell 2
+"""
+## Introduction
+"""
+
+# Cell 3
+library(tidyverse)
+```
+
+**IMPORTANT:** Raw cells MUST use triple quotes just like markdown cells.
+Without `"""`, the parser skips the content and Quarto never sees the YAML.
 
 ---
 

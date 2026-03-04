@@ -210,7 +210,7 @@ python -m txtarchive unpack <archive_file> <output_directory> [--replace_existin
 The `unpack` command automatically detects the archive format (standard or LLM-friendly) and extracts files accordingly.
 
 **Smart notebook reconstruction** (LLM-friendly archives):
-- `.ipynb` files → Reconstructed as JSON notebooks from `# Cell N` markers
+- `.ipynb` files → Reconstructed as JSON notebooks from `# Cell N`, `# Markdown Cell N`, and `# Raw Cell N` markers (markdown and raw cells must use `"""` triple-quote wrapping)
 - `.py` files with `# MAGIC` patterns → Reconstructed as Databricks notebooks with `# COMMAND ----------` separators
 - All other files → Extracted as plain text
 
