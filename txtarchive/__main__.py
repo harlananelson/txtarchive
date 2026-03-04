@@ -608,6 +608,43 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         help='Overwrite existing markdown files'
     )
 
+    # --- extract-report subcommand ---
+    extract_report_parser = subparsers.add_parser(
+        'extract-report',
+        help='Extract structured data from report-spec HTML',
+        description='Parse Quarto-rendered HTML reports following the 12-section report-spec format. '
+                    'Extracts metadata, tables, model cards, and figures into YAML, JSON, or markdown.',
+    )
+    extract_report_parser.add_argument(
+        'input_path',
+        type=str,
+        help='Path to the Quarto-rendered HTML file'
+    )
+    extract_report_parser.add_argument(
+        '--format',
+        choices=['yaml', 'json', 'markdown'],
+        default='yaml',
+        dest='output_format',
+        help='Output format (default: yaml)'
+    )
+    extract_report_parser.add_argument(
+        '--sections',
+        type=str,
+        default=None,
+        help='Comma-separated section numbers to extract (e.g., 0,1,6). Default: all'
+    )
+    extract_report_parser.add_argument(
+        '--output',
+        type=str,
+        default=None,
+        help='Output file path (default: stdout)'
+    )
+    extract_report_parser.add_argument(
+        '--strict',
+        action='store_true',
+        help='Fail if expected sections are missing (default: best-effort)'
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -764,7 +801,48 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         logger.info(f"Generating archive from {args.study_plan_path} and {args.lhn_archive_path}")
         from txtarchive.packunpack import generate_archive
         generate_archive(args.study_plan_path, args.lhn_archive_path, args.output_archive_path, args.llm_model)
-        
+
+    elif args.command == 'extract-report':
+        from pathlib import Path
+        from .report_extractor import extract_report, format_yaml, format_json, format_markdown
+        input_path = Path(args.input_path)
+
+        if not input_path.is_file():
+            logger.error(f"Input file does not exist: {input_path}")
+        else:
+            # Parse section filter
+            section_filter = None
+            if args.sections:
+                try:
+                    section_filter = [int(s.strip()) for s in args.sections.split(",")]
+                except ValueError:
+                    logger.error(f"Invalid --sections value: {args.sections}. Use comma-separated integers (e.g., 0,1,6)")
+                    return
+
+            try:
+                data = extract_report(input_path, sections=section_filter, strict=args.strict)
+
+                # Format output
+                if args.output_format == "json":
+                    output_text = format_json(data)
+                elif args.output_format == "markdown":
+                    output_text = format_markdown(data)
+                else:
+                    output_text = format_yaml(data)
+
+                # Write or print
+                if args.output:
+                    output_path = Path(args.output)
+                    output_path.write_text(output_text, encoding="utf-8")
+                    logger.info(f"Extracted report data written to: {output_path}")
+                else:
+                    print(output_text)
+
+            except Exception as e:
+                logger.error(f"Failed to extract report: {e}")
+                if args.strict:
+                    raise
+
     else:
         parser.print_help()
 

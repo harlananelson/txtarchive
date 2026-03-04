@@ -26,6 +26,13 @@ from .html_converter import (
     convert_html_documents_in_directory,
 )
 
+from .report_extractor import (
+    extract_report,
+    format_yaml,
+    format_json,
+    format_markdown,
+)
+
 __all__ = [
     'concatenate_files',
     'archive_subdirectories',
@@ -41,4 +48,8 @@ __all__ = [
     'convert_html_to_markdown',
     'convert_html_to_markdown_text',
     'convert_html_documents_in_directory',
+    'extract_report',
+    'format_yaml',
+    'format_json',
+    'format_markdown',
 ]

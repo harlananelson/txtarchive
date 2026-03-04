@@ -21,6 +21,8 @@ dependencies = [
   "mammoth",
   "python-docx",
   "pypandoc",
+  "beautifulsoup4",
+  "pyyaml",
 ]
 
 [project.scripts]
@@ -35,4 +37,7 @@ include-package-data = true
 dev = [
   "pytest",
   "black",
+]
+fast-html = [
+  "lxml",
 ]
