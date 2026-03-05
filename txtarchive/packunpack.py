@@ -240,14 +240,14 @@ def run_concat(
     concatenate_files(current_directory, combined_files, file_types=file_types)
 
 # Modify run_unpack to use auto-detection
-def run_unpack(output_directory, combined_file_path, replace_existing=False, kernel=None):
+def run_unpack(output_directory, combined_file_path, replace_existing=False, kernel=None, force=False):
     """Run unpack with auto-detection."""
     logger.info(
         f"Unpacking files from {combined_file_path} to {output_directory} using replace_existing={replace_existing}"
     )
     if kernel:
         logger.info(f"Using explicit kernel: {kernel}")
-    unpack_files_auto(output_directory, combined_file_path, replace_existing, kernel=kernel)
+    unpack_files_auto(output_directory, combined_file_path, replace_existing, kernel=kernel, force=force)
     logger.info(f"Files have been unpacked into: {output_directory}")
 
 
@@ -711,15 +711,41 @@ def auto_detect_archive_format(archive_path):
         return 'standard'
 
 
-def unpack_files_auto(output_directory, combined_file_path, replace_existing=False, kernel=None):
+def unpack_files_auto(output_directory, combined_file_path, replace_existing=False, kernel=None, force=False):
     """
     Auto-detect format and unpack accordingly.
+
+    By default, raises an error if the archive is in LLM-friendly format,
+    because LLM-friendly archives are lossy (no metadata, cell outputs stripped)
+    and cannot reconstruct the original files faithfully.
+
+    Use ``force=True`` or ``--force`` on the CLI to override and attempt
+    extraction anyway via ``unpack_llm_archive``.
     """
     format_type = auto_detect_archive_format(combined_file_path)
 
     logger.info(f"Detected archive format: {format_type}")
 
     if format_type == 'llm-friendly':
+        if not force:
+            msg = (
+                f"Error: '{combined_file_path}' is in LLM-friendly format, "
+                "which is designed for AI consumption and cannot faithfully reconstruct original files.\n"
+                "\n"
+                "Options:\n"
+                "  1. Re-archive in standard format (without --llm-friendly) for faithful reconstruction:\n"
+                "       python -m txtarchive archive <dir> <output>\n"
+                "       python -m txtarchive unpack <output> <restored_dir>\n"
+                "\n"
+                "  2. Extract notebooks from the LLM-friendly archive:\n"
+                "       python -m txtarchive extract-notebooks <archive> <output_dir>\n"
+                "\n"
+                "  3. Force unpack anyway (best-effort, lossy):\n"
+                "       python -m txtarchive unpack <archive> <output_dir> --force\n"
+            )
+            logger.error(msg)
+            raise SystemExit(msg)
+        logger.warning("Force-unpacking LLM-friendly archive (results may be lossy)")
         return unpack_llm_archive(output_directory, combined_file_path, replace_existing, kernel=kernel)
     else:
         return unpack_files(output_directory, combined_file_path, replace_existing)
@@ -944,6 +970,7 @@ def archive_files(
     root_files=None,
     include_subdirs=None,
     explicit_files=None,
+    dry_run=False,
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
@@ -1196,6 +1223,47 @@ def archive_files(
 
     # Rest of the function continues here (sorting, TOC, output)...
     file_list.sort(key=lambda x: str(x[0]))
+
+    if dry_run:
+        total_chars = sum(len(content) for _, content in file_list)
+        estimated_tokens = total_chars // 4  # rough estimate: ~4 chars per token
+        format_name = "LLM-friendly" if llm_friendly else "Standard"
+        issues = []
+
+        # Check for missing root files
+        for rf in (root_files or set()):
+            rf_path = directory / rf
+            if not rf_path.is_file():
+                issues.append(f"Root file not found: {rf}")
+
+        if not file_list:
+            issues.append("No files matched the given filters")
+
+        print(f"\n{'='*60}")
+        print(f"DRY RUN — Archive Preview")
+        print(f"{'='*60}")
+        print(f"Source directory:  {directory}")
+        print(f"Output file:      {output_file_path}")
+        print(f"Format:           {format_name}")
+        print(f"Files to archive: {len(file_list)}")
+        print(f"Estimated chars:  {total_chars:,}")
+        print(f"Estimated tokens: {estimated_tokens:,}")
+        if split_output:
+            print(f"Split output:     yes (max {max_tokens:,} tokens/file)")
+        print(f"\nFiles that would be included:")
+        for idx, (rel_path, content) in enumerate(file_list, 1):
+            size_kb = len(content) / 1024
+            print(f"  {idx:3d}. {rel_path} ({size_kb:.1f} KB)")
+
+        if issues:
+            print(f"\nIssues:")
+            for issue in issues:
+                print(f"  - {issue}")
+
+        print(f"{'='*60}")
+        print("No files were written.")
+        return None
+
     all_contents += "# TABLE OF CONTENTS\n"
     all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
     all_contents += "\n\n"

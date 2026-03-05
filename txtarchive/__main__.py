@@ -4,6 +4,7 @@ import logging
 from importlib.metadata import version
 from txtarchive.packunpack import archive_files, run_unpack, archive_subdirectories, run_extract_notebooks, run_extract_notebooks_and_quarto
 import os
+import json as json_module
 from txtarchive.ask_sage import ingest_document
 from .header import logger
 
@@ -307,6 +308,57 @@ def add_common_archive_args(parser):
              'Bypasses directory scanning and archives only these specific files. '
              'Example: --explicit-files file1.ipynb file2.R "file with spaces.py"'
     )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Show what would be archived without writing any files. '
+             'Reports file count, estimated size, and lists included/excluded files.'
+    )
+
+def _describe_parser(parser, name=None):
+    """Extract a machine-readable description of a parser's arguments."""
+    result = {}
+    if name:
+        result["command"] = name
+    result["description"] = parser.description or parser.format_usage()
+
+    args_list = []
+    for action in parser._actions:
+        if isinstance(action, argparse._HelpAction):
+            continue
+        if isinstance(action, argparse._VersionAction):
+            continue
+        if isinstance(action, argparse._SubParsersAction):
+            continue
+
+        arg_info = {
+            "name": action.dest,
+            "flags": action.option_strings if action.option_strings else [action.dest],
+            "required": action.required if hasattr(action, 'required') else not action.option_strings,
+            "description": action.help or "",
+        }
+
+        if action.type is not None:
+            arg_info["type"] = action.type.__name__
+        elif isinstance(action, argparse._StoreTrueAction):
+            arg_info["type"] = "bool"
+        elif isinstance(action, argparse._StoreFalseAction):
+            arg_info["type"] = "bool"
+        else:
+            arg_info["type"] = "string"
+
+        if action.default is not argparse.SUPPRESS and action.default is not None:
+            arg_info["default"] = action.default
+        if action.choices:
+            arg_info["choices"] = list(action.choices)
+        if action.nargs:
+            arg_info["nargs"] = str(action.nargs)
+
+        args_list.append(arg_info)
+
+    result["arguments"] = args_list
+    return result
+
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -417,6 +469,11 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         type=str,
         default=None,
         help='Jupyter kernel name for notebooks (e.g. r_env, pyspark-lhn-dev). Overrides auto-detection.'
+    )
+    unpack_parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Force unpack even for LLM-friendly archives (best-effort, lossy extraction)'
     )
 
     # Generate Command
@@ -645,6 +702,42 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         help='Fail if expected sections are missing (default: best-effort)'
     )
 
+    # Describe Command (machine-readable CLI schema)
+    describe_parser = subparsers.add_parser(
+        'describe',
+        help='Output machine-readable JSON description of CLI commands and options',
+        description='Dump the full CLI surface as JSON for agent/tool integration.'
+    )
+    describe_parser.add_argument(
+        'describe_command',
+        nargs='?',
+        default=None,
+        help='Specific command to describe (default: all commands)'
+    )
+    describe_parser.add_argument(
+        '--format',
+        choices=['json'],
+        default='json',
+        dest='describe_format',
+        help='Output format (default: json)'
+    )
+
+    # Store subparsers for describe command access
+    _subparser_map = {
+        'archive': archive_parser,
+        'unpack': unpack_parser,
+        'archive-and-ingest': archive_ingest_parser,
+        'ingest': ingest_parser,
+        'generate': generate_parser,
+        'archive_subdirectories': archive_subs_parser,
+        'extract-notebooks': extract_nb_parser,
+        'extract-notebooks-and-quarto': extract_nbq_parser,
+        'convert-word': convert_word_parser,
+        'convert-html': convert_html_parser,
+        'extract-report': extract_report_parser,
+        'describe': describe_parser,
+    }
+
     args = parser.parse_args()
 
     if not args.command:
@@ -684,7 +777,8 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             exclude_dirs=args.exclude_dirs,
             root_files=args.root_files,
             include_subdirs=args.include_subdirs,
-            explicit_files=getattr(args, 'explicit_files', None), # Pass explicit files if provided
+            explicit_files=getattr(args, 'explicit_files', None),
+            dry_run=getattr(args, 'dry_run', False),
         )
         
     elif args.command == 'archive-and-ingest':
@@ -711,7 +805,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         
     elif args.command == 'unpack':
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
-        run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing, kernel=getattr(args, 'kernel', None))
+        run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing, kernel=getattr(args, 'kernel', None), force=getattr(args, 'force', False))
         
     elif args.command == 'archive_subdirectories':
         archive_subdirectories(args.parent_directory, args.directories, args.combined_archive_dir, args.combined_archive_name, args.file_types)
@@ -796,6 +890,26 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             logger.info(f"Converted {len(converted_files)} HTML documents in {input_path}")
         else:
             logger.error(f"Input path does not exist: {input_path}")
+
+    elif args.command == 'describe':
+        target_cmd = args.describe_command
+        if target_cmd:
+            if target_cmd not in _subparser_map:
+                print(f"Unknown command: {target_cmd}", file=__import__('sys').stderr)
+                print(f"Available commands: {', '.join(sorted(_subparser_map.keys()))}", file=__import__('sys').stderr)
+                raise SystemExit(1)
+            schema = _describe_parser(_subparser_map[target_cmd], name=target_cmd)
+        else:
+            schema = {
+                "tool": "txtarchive",
+                "version": __version__,
+                "description": parser.description,
+                "commands": {
+                    name: _describe_parser(sub_parser, name=name)
+                    for name, sub_parser in _subparser_map.items()
+                }
+            }
+        print(json_module.dumps(schema, indent=2))
 
     elif args.command == 'generate':
         logger.info(f"Generating archive from {args.study_plan_path} and {args.lhn_archive_path}")
