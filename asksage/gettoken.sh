@@ -28,6 +28,8 @@ if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" == "null" ]; then
   exit 1
 fi
 
-# Export the access token to the parent shell
-echo "Access token retrieved successfully: $ACCESS_TOKEN"
+# Note: Run with `source asksage/gettoken.sh` to export into your current shell.
+# Running as `./asksage/gettoken.sh` will NOT export to the parent shell.
+echo "Access token retrieved successfully."
+echo "Run: export ACCESS_TOKEN='$ACCESS_TOKEN'"
 export ACCESS_TOKEN

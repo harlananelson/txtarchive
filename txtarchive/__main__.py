@@ -22,21 +22,26 @@ def handle_ingestion_response(response_data, file_path):
         bool: True if ingestion was successful, False otherwise
     """
     if not response_data:
-        logger.error(f"⚠️ No response received for {file_path}")
+        logger.error(f"No response received for {file_path}")
         return False
-    
-    # Check for successful embedding creation
+
+    # Check for successful response: embedding present, or no error field
     if response_data.get("embedding") is not None:
-        logger.info(f"✅ Successfully ingested {file_path}")
+        logger.info(f"Successfully ingested {file_path}")
         return True
-    
-    # Check for error messages in response
-    error_message = response_data.get("response", "Unknown API error")
+
+    # Some endpoints return success without an embedding field
+    error_message = response_data.get("response", "")
+    if not error_message or (isinstance(error_message, str) and "error" not in error_message.lower()):
+        logger.info(f"Successfully ingested {file_path}")
+        return True
+
+    # Check for known error patterns
     if "content too long" in str(error_message).lower():
-        logger.error(f"⚠️ Content too long for {file_path}. Consider splitting or reducing file size.")
+        logger.error(f"Content too long for {file_path}. Consider splitting or reducing file size.")
     else:
-        logger.error(f"⚠️ Failed to ingest {file_path}. Reason: {error_message}")
-    
+        logger.error(f"Failed to ingest {file_path}. Reason: {error_message}")
+
     return False
 
 def archive_and_ingest(
@@ -361,7 +366,21 @@ def _describe_parser(parser, name=None):
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    # Configure logging for the application (the library only creates a NullHandler)
+    app_logger = logging.getLogger('txtarchive')
+    app_logger.setLevel(logging.INFO)
+    if not app_logger.handlers or isinstance(app_logger.handlers[0], logging.NullHandler):
+        # Remove NullHandler and add real handlers
+        app_logger.handlers.clear()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        app_logger.addHandler(console_handler)
+        file_handler = logging.FileHandler('txtarchive.log')
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        app_logger.addHandler(file_handler)
 
     epilog = """
 Examples:
@@ -741,28 +760,25 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
     args = parser.parse_args()
 
     if not args.command:
-        if hasattr(args, 'version'):
-            parser.parse_args(['--version'])
-        else:
-            parser.print_help()
+        parser.print_help()
         return
 
-    # Handle commands
-    if args.command == "ingest":
+    # --- Command handler functions ---
+
+    def handle_ingest(args):
         try:
-            response_data = ingest_document(args.file)
-            
+            response_data = ingest_document(
+                args.file,
+                endpoint=getattr(args, 'endpoint', 'train'),
+            )
             if handle_ingestion_response(response_data, args.file):
                 print("Document ingested successfully!")
-                if response_data:
-                    print("Response:", response_data)
             else:
                 print("Document ingestion failed. Check logs for details.")
-                
         except Exception as e:
             print(f"Error: {e}")
-            
-    elif args.command == 'archive':
+
+    def handle_archive(args):
         archive_files(
             directory=args.directory,
             output_file_path=args.output_file,
@@ -780,15 +796,15 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             explicit_files=getattr(args, 'explicit_files', None),
             dry_run=getattr(args, 'dry_run', False),
         )
-        
-    elif args.command == 'archive-and-ingest':
+
+    def handle_archive_and_ingest(args):
         archive_and_ingest(
             directory=args.directory,
             output_file_path=args.output_file,
             file_types=args.file_types,
             include_subdirectories=not args.no_subdirectories,
             extract_code_only=args.extract_code_only,
-            llm_friendly=getattr(args, 'llm_friendly', True),  # Default to True for ingestion
+            llm_friendly=getattr(args, 'llm_friendly', True),
             file_prefixes=args.file_prefixes,
             split_output=args.split_output,
             max_tokens=args.max_tokens,
@@ -802,33 +818,31 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             test_endpoints=getattr(args, 'test_endpoints', False),
             explicit_files=getattr(args, 'explicit_files', None),
         )
-        
-    elif args.command == 'unpack':
+
+    def handle_unpack(args):
         logger.info(f"Unpacking files from {args.combined_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
         run_unpack(args.output_directory, args.combined_file_path, replace_existing=args.replace_existing, kernel=getattr(args, 'kernel', None), force=getattr(args, 'force', False))
-        
-    elif args.command == 'archive_subdirectories':
+
+    def handle_archive_subdirectories(args):
         archive_subdirectories(args.parent_directory, args.directories, args.combined_archive_dir, args.combined_archive_name, args.file_types)
-        
-    elif args.command == 'extract-notebooks':
+
+    def handle_extract_notebooks(args):
         logger.info(f"Extracting notebooks from {args.archive_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
         run_extract_notebooks(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing, kernel=getattr(args, 'kernel', None))
 
-    elif args.command == 'extract-notebooks-and-quarto':
+    def handle_extract_notebooks_and_quarto(args):
         logger.info(f"Extracting notebooks and Quarto files from {args.archive_file_path} to {args.output_directory} using replace_existing={args.replace_existing}")
         run_extract_notebooks_and_quarto(args.archive_file_path, args.output_directory, replace_existing=args.replace_existing, kernel=getattr(args, 'kernel', None))
-        
-    elif args.command == 'convert-word':
+
+    def handle_convert_word(args):
         from pathlib import Path
         from .word_converter import convert_word_to_markdown, convert_word_documents_in_directory
         input_path = Path(args.input_path)
-        
+
         if input_path.is_file():
-            # Convert single file
             output_path = args.output_path
             if output_path is None:
                 output_path = input_path.with_suffix('.md')
-            
             try:
                 markdown_content = convert_word_to_markdown(input_path, method=args.method)
                 with open(output_path, 'w', encoding='utf-8') as f:
@@ -836,21 +850,17 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
                 logger.info(f"Successfully converted: {input_path} -> {output_path}")
             except Exception as e:
                 logger.error(f"Failed to convert {input_path}: {e}")
-                
         elif input_path.is_dir():
-            # Convert directory of files
             output_dir = args.output_path or input_path
             converted_files = convert_word_documents_in_directory(
-                input_path, 
-                output_dir, 
-                method=args.method,
+                input_path, output_dir, method=args.method,
                 replace_existing=args.replace_existing
             )
             logger.info(f"Converted {len(converted_files)} Word documents in {input_path}")
         else:
             logger.error(f"Input path does not exist: {input_path}")
-        
-    elif args.command == 'convert-html':
+
+    def handle_convert_html(args):
         from pathlib import Path
         from .html_converter import convert_html_to_markdown, convert_html_documents_in_directory
         input_path = Path(args.input_path)
@@ -858,13 +868,11 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         image_dir = Path(args.image_dir) if args.image_dir else None
 
         if input_path.is_file():
-            # Convert single file
             output_path = args.output_path
             if output_path is None:
                 output_path = input_path.with_suffix('.md')
             else:
                 output_path = Path(output_path)
-
             try:
                 markdown_content = convert_html_to_markdown(
                     input_path, method=args.method,
@@ -876,14 +884,10 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
                 logger.info(f"Successfully converted: {input_path} -> {output_path}")
             except Exception as e:
                 logger.error(f"Failed to convert {input_path}: {e}")
-
         elif input_path.is_dir():
-            # Convert directory of files
             output_dir = Path(args.output_path) if args.output_path else input_path
             converted_files = convert_html_documents_in_directory(
-                input_path,
-                output_dir,
-                method=args.method,
+                input_path, output_dir, method=args.method,
                 replace_existing=args.replace_existing,
                 extract_images=extract_images
             )
@@ -891,7 +895,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         else:
             logger.error(f"Input path does not exist: {input_path}")
 
-    elif args.command == 'describe':
+    def handle_describe(args):
         target_cmd = args.describe_command
         if target_cmd:
             if target_cmd not in _subparser_map:
@@ -911,52 +915,67 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             }
         print(json_module.dumps(schema, indent=2))
 
-    elif args.command == 'generate':
+    def handle_generate(args):
         logger.info(f"Generating archive from {args.study_plan_path} and {args.lhn_archive_path}")
         from txtarchive.packunpack import generate_archive
         generate_archive(args.study_plan_path, args.lhn_archive_path, args.output_archive_path, args.llm_model)
 
-    elif args.command == 'extract-report':
+    def handle_extract_report(args):
         from pathlib import Path
         from .report_extractor import extract_report, format_yaml, format_json, format_markdown
         input_path = Path(args.input_path)
 
         if not input_path.is_file():
             logger.error(f"Input file does not exist: {input_path}")
-        else:
-            # Parse section filter
-            section_filter = None
-            if args.sections:
-                try:
-                    section_filter = [int(s.strip()) for s in args.sections.split(",")]
-                except ValueError:
-                    logger.error(f"Invalid --sections value: {args.sections}. Use comma-separated integers (e.g., 0,1,6)")
-                    return
+            return
 
+        section_filter = None
+        if args.sections:
             try:
-                data = extract_report(input_path, sections=section_filter, strict=args.strict)
+                section_filter = [int(s.strip()) for s in args.sections.split(",")]
+            except ValueError:
+                logger.error(f"Invalid --sections value: {args.sections}. Use comma-separated integers (e.g., 0,1,6)")
+                return
 
-                # Format output
-                if args.output_format == "json":
-                    output_text = format_json(data)
-                elif args.output_format == "markdown":
-                    output_text = format_markdown(data)
-                else:
-                    output_text = format_yaml(data)
+        try:
+            data = extract_report(input_path, sections=section_filter, strict=args.strict)
+            if args.output_format == "json":
+                output_text = format_json(data)
+            elif args.output_format == "markdown":
+                output_text = format_markdown(data)
+            else:
+                output_text = format_yaml(data)
 
-                # Write or print
-                if args.output:
-                    output_path = Path(args.output)
-                    output_path.write_text(output_text, encoding="utf-8")
-                    logger.info(f"Extracted report data written to: {output_path}")
-                else:
-                    print(output_text)
+            if args.output:
+                output_path = Path(args.output)
+                output_path.write_text(output_text, encoding="utf-8")
+                logger.info(f"Extracted report data written to: {output_path}")
+            else:
+                print(output_text)
+        except Exception as e:
+            logger.error(f"Failed to extract report: {e}")
+            if args.strict:
+                raise
 
-            except Exception as e:
-                logger.error(f"Failed to extract report: {e}")
-                if args.strict:
-                    raise
+    # --- Command dispatch ---
+    command_handlers = {
+        'ingest': handle_ingest,
+        'archive': handle_archive,
+        'archive-and-ingest': handle_archive_and_ingest,
+        'unpack': handle_unpack,
+        'archive_subdirectories': handle_archive_subdirectories,
+        'extract-notebooks': handle_extract_notebooks,
+        'extract-notebooks-and-quarto': handle_extract_notebooks_and_quarto,
+        'convert-word': handle_convert_word,
+        'convert-html': handle_convert_html,
+        'describe': handle_describe,
+        'generate': handle_generate,
+        'extract-report': handle_extract_report,
+    }
 
+    handler = command_handlers.get(args.command)
+    if handler:
+        handler(args)
     else:
         parser.print_help()
 

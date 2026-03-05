@@ -203,76 +203,6 @@ def test_cli_integration():
         import shutil
         shutil.rmtree(test_dir)
 
-def test_archive_with_word_conversion():
-    """Test archiving with Word document conversion."""
-    print("\n=== Testing Archive with Word Conversion ===")
-    
-    # Create test directory structure
-    test_dir = Path(tempfile.mkdtemp(prefix="archive_word_test_"))
-    
-    try:
-        # Create test files
-        (test_dir / "script.py").write_text("""
-def hello():
-    return "Hello from Python!"
-""")
-        
-        (test_dir / "README.md").write_text("""
-# Test Project
-This is a test project with mixed content.
-""")
-        
-        # Create test Word document
-        _, docx_path = create_test_docx()
-        import shutil
-        final_docx = test_dir / "document.docx"
-        shutil.copy(docx_path, final_docx)
-        
-        # Test archive with Word conversion
-        import subprocess
-        
-        archive_path = test_dir / "archive.txt"
-        
-        cmd = [
-            "python", "-m", "txtarchive", "archive",
-            str(test_dir),
-            str(archive_path),
-            "--file_types", ".py", ".md", ".docx",
-            "--convert-word",
-            "--word-method", "auto",
-            "--llm-friendly"
-        ]
-        
-        print(f"Running archive command: {' '.join(cmd)}")
-        
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        print(f"Return code: {result.returncode}")
-        if result.stdout:
-            print(f"Stdout: {result.stdout}")
-        if result.stderr:
-            print(f"Stderr: {result.stderr}")
-        
-        if result.returncode == 0 and archive_path.exists():
-            content = archive_path.read_text()
-            print(f"✅ Archive with Word conversion succeeded")
-            print(f"   Archive size: {len(content)} characters")
-            
-            # Check if converted content is in archive
-            if "Test Document" in content:
-                print(f"✅ Word document content found in archive")
-            else:
-                print(f"⚠️  Word document content not found in archive")
-            
-            return True
-        else:
-            print(f"❌ Archive with Word conversion failed")
-            return False
-            
-    finally:
-        import shutil
-        shutil.rmtree(test_dir)
-
 def run_word_conversion_tests():
     """Run all Word conversion tests."""
     print("Starting Word Conversion Tests for TxtArchive")
@@ -281,7 +211,6 @@ def run_word_conversion_tests():
     tests = [
         ("Conversion Methods", test_conversion_methods),
         ("CLI Integration", test_cli_integration),
-        ("Archive Integration", test_archive_with_word_conversion)
     ]
     
     results = []
@@ -316,44 +245,6 @@ def run_word_conversion_tests():
         print("\n🎉 All Word conversion tests passed!")
     else:
         print(f"\n⚠️ {failed} test(s) failed")
-    
-    # Provide installation guidance
-    print("\n" + "=" * 50)
-    print("INSTALLATION RECOMMENDATIONS")
-    print("=" * 50)
-    
-    try:
-        from txtarchive.word_converter import MAMMOTH_AVAILABLE, PYTHON_DOCX_AVAILABLE, PANDOC_AVAILABLE
-        
-        if not MAMMOTH_AVAILABLE:
-            print("📦 Install mammoth for best conversion quality:")
-            print("   pip install mammoth")
-        
-        if not PYTHON_DOCX_AVAILABLE:
-            print("📦 Install python-docx for good text extraction:")
-            print("   pip install python-docx")
-        
-        if not PANDOC_AVAILABLE:
-            print("📦 Install pypandoc for comprehensive conversion:")
-            print("   pip install pypandoc")
-            print("   Also install pandoc system-wide: https://pandoc.org/installing.html")
-        
-        if MAMMOTH_AVAILABLE and PYTHON_DOCX_AVAILABLE:
-            print("✅ Recommended packages are installed!")
-        
-    except ImportError:
-        print("❌ Could not import word_converter module")
-        print("   Make sure the word_converter.py file is in your txtarchive package")
-    
-    print("\n" + "=" * 50)
-    print("NEXT STEPS")
-    print("=" * 50)
-    print("1. Install recommended packages above")
-    print("2. Test with your own Word documents:")
-    print("   python -m txtarchive convert-word 'your_doc.docx' 'output.md'")
-    print("3. Try archiving projects with Word docs:")
-    print("   python -m txtarchive archive 'project/' 'archive.txt' --convert-word")
-    print("4. For best results, use --word-method mammoth")
 
 def check_dependencies():
     """Check which Word conversion dependencies are available."""

@@ -11,7 +11,7 @@ TxtArchive supports **two distinct archive formats**:
 | Format | Separator Pattern | Purpose | Unpacking |
 |--------|------------------|---------|-----------|
 | **Standard** | `---\nFilename: path/to/file.py\n---` | Exact file reconstruction | ✅ `unpack` command |
-| **LLM-Friendly** | `# FILE 1: path/to/file.py\n###...###` | AI analysis, stripped metadata | ✅ `unpack` (auto-detects) or `extract-notebooks` for .ipynb |
+| **LLM-Friendly** | `# FILE 1: path/to/file.py\n###...###` | AI analysis, stripped metadata | `unpack --force` (best-effort, lossy) or `extract-notebooks` for .ipynb |
 
 ### Format Selection Decision Tree
 
@@ -27,25 +27,29 @@ Are you creating an archive?
 | Command | Standard Format | LLM-Friendly Format | Notes |
 |---------|----------------|---------------------|-------|
 | `archive` | ✅ Creates | ✅ Creates with `--llm-friendly` | Choose format at creation |
-| `unpack` | ✅ Unpacks | ✅ Unpacks (auto-detects format) | Works with both formats |
+| `unpack` | ✅ Unpacks | ⚠️ Requires `--force` (lossy) | LLM-friendly is lossy; use `extract-notebooks` for .ipynb |
 | `extract-notebooks` | ❌ | ✅ Extracts .ipynb | Reconstructs notebooks from cell markers |
 | `extract-notebooks-and-quarto` | ❌ | ✅ Extracts .ipynb + .qmd | LLM format only |
 | `archive-and-ingest` | N/A | ✅ Recommended for AI | Uses LLM format |
 
 ### Format Auto-Detection
 
-The `unpack` command automatically detects the archive format and uses the appropriate parser:
+The `unpack` command automatically detects the archive format:
 
 ```bash
-# Both formats work with unpack (auto-detected)
+# Standard format: faithful reconstruction
 python -m txtarchive archive myproject/ archive.txt
 python -m txtarchive unpack archive.txt restored_project/
 
+# LLM-friendly format: lossy, requires --force
 python -m txtarchive archive myproject/ archive.txt --llm-friendly
-python -m txtarchive unpack archive.txt restored_project/  # Also works!
+python -m txtarchive unpack archive.txt restored_project/ --force  # Best-effort, lossy
+
+# For notebooks in LLM-friendly archives, prefer extract-notebooks:
+python -m txtarchive extract-notebooks archive.txt restored_project/
 ```
 
-**Note:** For Jupyter notebooks in LLM-friendly format, use `extract-notebooks` to reconstruct `.ipynb` files with proper cell structure from the `# Cell N` markers.
+**Important:** LLM-friendly archives are optimized for AI consumption and strip metadata, cell outputs, and notebook structure. Use `--force` to extract anyway (best-effort), or use `extract-notebooks` to reconstruct `.ipynb` files with proper cell structure from the `# Cell N` markers.
 
 ## Architecture Overview (for LLM Understanding)
 
@@ -223,9 +227,9 @@ The `unpack` command automatically detects the archive format (standard or LLM-f
 python -m txtarchive archive myproject/ archive.txt
 python -m txtarchive unpack archive.txt restored/ --replace_existing
 
-# LLM-friendly format (also works - auto-detected)
+# LLM-friendly format (requires --force, lossy extraction)
 python -m txtarchive archive myproject/ archive.txt --llm-friendly
-python -m txtarchive unpack archive.txt restored/ --replace_existing
+python -m txtarchive unpack archive.txt restored/ --replace_existing --force
 ```
 
 ### `extract-notebooks` - Extract Jupyter Notebooks
@@ -333,8 +337,10 @@ head -n 10 your_archive.txt
 # Standard format should have: "---\nFilename: "
 # LLM-friendly format should have: "# LLM-FRIENDLY CODE ARCHIVE" and "# FILE 1:"
 
-# Both formats are supported by unpack (auto-detected)
+# Standard format
 python -m txtarchive unpack your_archive.txt output_dir/ --replace_existing
+# LLM-friendly format (requires --force)
+python -m txtarchive unpack your_archive.txt output_dir/ --replace_existing --force
 ```
 
 ### Issue: "extract-notebooks doesn't find files"

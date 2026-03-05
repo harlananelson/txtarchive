@@ -184,54 +184,11 @@ def basic_docx_extraction(docx_path):
         raise
 
 def html_to_markdown(html_content):
-    """
-    Convert HTML to basic markdown format.
-    This is a simple converter - for production use, consider using markdownify.
-    """
+    """Convert HTML to markdown, delegating to the shared html_converter module."""
     if not html_content:
         return ""
-    
-    # Basic HTML to markdown conversion
-    content = html_content
-    
-    # Headers
-    content = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1', content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1', content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1', content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r'<h4[^>]*>(.*?)</h4>', r'#### \1', content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r'<h5[^>]*>(.*?)</h5>', r'##### \1', content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r'<h6[^>]*>(.*?)</h6>', r'###### \1', content, flags=re.IGNORECASE | re.DOTALL)
-    
-    # Bold and italic
-    content = re.sub(r'<strong[^>]*>(.*?)</strong>', r'**\1**', content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r'<b[^>]*>(.*?)</b>', r'**\1**', content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r'<em[^>]*>(.*?)</em>', r'*\1*', content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r'<i[^>]*>(.*?)</i>', r'*\1*', content, flags=re.IGNORECASE | re.DOTALL)
-    
-    # Links
-    content = re.sub(r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>', r'[\2](\1)', content, flags=re.IGNORECASE | re.DOTALL)
-    
-    # Paragraphs
-    content = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', content, flags=re.IGNORECASE | re.DOTALL)
-    
-    # Line breaks
-    content = re.sub(r'<br[^>]*/?>', '\n', content, flags=re.IGNORECASE)
-    
-    # Lists
-    content = re.sub(r'<ul[^>]*>', '', content, flags=re.IGNORECASE)
-    content = re.sub(r'</ul>', '\n', content, flags=re.IGNORECASE)
-    content = re.sub(r'<ol[^>]*>', '', content, flags=re.IGNORECASE)
-    content = re.sub(r'</ol>', '\n', content, flags=re.IGNORECASE)
-    content = re.sub(r'<li[^>]*>(.*?)</li>', r'- \1\n', content, flags=re.IGNORECASE | re.DOTALL)
-    
-    # Remove remaining HTML tags
-    content = re.sub(r'<[^>]+>', '', content)
-    
-    # Clean up extra whitespace
-    content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
-    content = content.strip()
-    
-    return content
+    from .html_converter import convert_html_to_markdown_text
+    return convert_html_to_markdown_text(html_content)
 
 def convert_word_to_markdown(docx_path, method='auto'):
     """
@@ -343,56 +300,3 @@ def convert_word_documents_in_directory(directory, output_dir=None, method='auto
     logger.info(f"Converted {len(converted_files)} Word documents to markdown")
     return converted_files
 
-def integrate_word_conversion_with_archive(directory, output_file_path, convert_word=True, word_method='auto', **archive_kwargs):
-    """
-    Archive files with automatic Word document conversion to markdown.
-    
-    Args:
-        directory: Directory to archive
-        output_file_path: Archive output path
-        convert_word (bool): Whether to convert Word documents
-        word_method (str): Word conversion method
-        **archive_kwargs: Additional arguments for archive_files
-    """
-    from .packunpack import archive_files
-    
-    directory = Path(directory)
-    
-    if convert_word:
-        # Convert Word documents to markdown first
-        logger.info("Converting Word documents to markdown before archiving...")
-        temp_md_dir = directory / "_temp_markdown"
-        temp_md_dir.mkdir(exist_ok=True)
-        
-        try:
-            converted_files = convert_word_documents_in_directory(
-                directory, 
-                temp_md_dir, 
-                method=word_method, 
-                replace_existing=True
-            )
-            
-            if converted_files:
-                logger.info(f"Converted {len(converted_files)} Word documents")
-                
-                # Add .md to file types if not already present
-                file_types = archive_kwargs.get('file_types', ['.py', '.yaml', '.md'])
-                if '.md' not in file_types:
-                    file_types.append('.md')
-                    archive_kwargs['file_types'] = file_types
-                
-                # Archive with converted markdown files
-                archive_files(directory, output_file_path, **archive_kwargs)
-            else:
-                logger.info("No Word documents found to convert")
-                archive_files(directory, output_file_path, **archive_kwargs)
-                
-        finally:
-            # Clean up temporary markdown files
-            if temp_md_dir.exists():
-                import shutil
-                shutil.rmtree(temp_md_dir)
-                logger.info("Cleaned up temporary markdown files")
-    else:
-        # Archive without conversion
-        archive_files(directory, output_file_path, **archive_kwargs)

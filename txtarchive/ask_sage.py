@@ -54,15 +54,11 @@ def ingest_document(document_path, endpoint="train"):
             "content": document_content,
         }
 
-    response = requests.post(api_url, headers=headers, json=payload)
-
-    # Debugging: Print the response details
-    print(f"Response Status Code: {response.status_code}")
-    print(f"Response Text: {response.text}")
+    response = requests.post(api_url, headers=headers, json=payload, timeout=60)
 
     # Raise an error if the request failed
     if response.status_code != 200:
-        raise Exception(f"Failed to ingest document via {endpoint} endpoint: {response.text}")
+        raise Exception(f"Failed to ingest document via {endpoint} endpoint: {response.text[:200]}")
 
     return response.json()
 

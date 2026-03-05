@@ -6,12 +6,10 @@ and figures. Outputs YAML, JSON, or condensed markdown.
 """
 
 import json
-import logging
 import re
-import warnings
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from .header import logger
 
 # Section registry: maps section numbers to canonical names and ID patterns
 SECTION_REGISTRY = {

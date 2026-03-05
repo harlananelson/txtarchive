@@ -129,7 +129,6 @@ Thumbs.db
 *~
 split_txtarchive/
 # Ignore generated directories
-split_txtarchive/
 build/
 dist/
 *.egg-info/

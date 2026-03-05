@@ -1,22 +1,25 @@
 #!/bin/bash
-# archive_Demographics.sh
+# archive-by-filename.sh
 # Archives specific files using txtarchive with explicit file list
-# Called from: ~/work/Users/hnelson3/Projects/
+# Usage: ./archive-by-filename.sh [file1.ipynb file2.py ...]
 
 set -e
 
 # === CONFIGURATION ===
-# Run from Projects
-SOURCE_DIR="."
-ARCHIVE_DIR="./archive"
-ARCHIVE_BASE="disease-severity"
+SOURCE_DIR="${SOURCE_DIR:-.}"
+ARCHIVE_DIR="${ARCHIVE_DIR:-./archive}"
+ARCHIVE_BASE="${ARCHIVE_BASE:-archive}"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 OUTPUT_FILE="${ARCHIVE_DIR}/${ARCHIVE_BASE}_${TIMESTAMP}.txt"
 
-# Parameterized file list (Bash array)
-FILES_TO_ARCHIVE=(
-    "270-Model-Mortality-using-LOINC-3-levels-jan30-2025.ipynb"
-)
+# Use command-line arguments as files, or prompt if none given
+if [ $# -gt 0 ]; then
+    FILES_TO_ARCHIVE=("$@")
+else
+    echo "Usage: $0 file1.ipynb [file2.py ...]"
+    echo "Or set FILES_TO_ARCHIVE as an array before calling."
+    exit 1
+fi
 
 # === SETUP ===
 mkdir -p "${ARCHIVE_DIR}"
@@ -29,7 +32,6 @@ python -m txtarchive archive \
     "${SOURCE_DIR}" \
     "${OUTPUT_FILE}" \
     --explicit-files "${FILES_TO_ARCHIVE[@]}" \
-    --file_types .ipynb \
     --llm-friendly \
     --extract-code-only
 

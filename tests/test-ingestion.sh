@@ -12,9 +12,11 @@ if [ -z "$ACCESS_TOKEN" ]; then
     echo ""
 fi
 
-root_dir="/app/projects/clinressys01_t1/"
-archive_dir="${root_dir}archive"
-txtarchive_src="${root_dir}txtarchive"  # The project directory
+# Use environment variable or default to project root (relative to this script)
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+root_dir="${ROOT_DIR:-$(realpath "$SCRIPT_DIR/..")}"
+archive_dir="${root_dir}/archive"
+txtarchive_src="${root_dir}"  # The project directory
 
 # Ensure archive directory exists
 mkdir -p "$archive_dir"

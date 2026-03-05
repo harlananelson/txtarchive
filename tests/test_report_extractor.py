@@ -1,6 +1,7 @@
 """Tests for report_extractor module."""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -420,7 +421,10 @@ class TestCLI:
 # Integration test with real report (only runs if file exists)
 # ---------------------------------------------------------------------------
 
-REAL_REPORT_PATH = Path("/home/harlan/projects/SCDCernerProject/paper/2060-nejm-cox-adjusted-survival.html")
+# Use environment variable or default path for integration tests
+_default_report = Path(__file__).parent / "assets" / "sample_report.html"
+_env_report = os.environ.get("TXTARCHIVE_TEST_REPORT_PATH", "")
+REAL_REPORT_PATH = Path(_env_report) if _env_report else _default_report
 
 
 @pytest.mark.skipif(not REAL_REPORT_PATH.exists(), reason="Real report HTML not available")

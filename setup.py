@@ -1,22 +1,27 @@
-# setup.py
-# setup.py
-import os  # Add this line
-
-
+# setup.py — fallback for systems without PEP 621 support.
+# Canonical metadata lives in pyproject.toml.
+import os
 from setuptools import setup, find_packages
 
 setup(
     name="txtarchive",
-    version="0.1.0",
+    version="0.2.0",
     packages=find_packages(),
     include_package_data=True,
-    install_requires=[],
+    install_requires=[
+        "requests",
+        "mammoth",
+        "python-docx",
+        "pypandoc",
+        "beautifulsoup4",
+        "pyyaml",
+    ],
     entry_points={
         'console_scripts': [
             'txtarchive = txtarchive.__main__:main',
         ],
     },
-    author="Your Name",
+    author="Harlan A Nelson",
     author_email="harlananelson@gmail.com",
     description="A utility for archiving and unpacking text files",
     long_description=open('README.md').read() if os.path.exists('README.md') else '',
@@ -26,5 +31,5 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.7.6',
+    python_requires='>=3.10',
 )
