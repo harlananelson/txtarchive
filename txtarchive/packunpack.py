@@ -843,6 +843,24 @@ def _read_file_content(file_path, extract_code_only=False):
         except Exception as e:
             logger.error(f"Error converting HTML {file_path}: {e}")
             return f"# Error converting HTML: {e}\n\n"
+    elif file_path.suffix.lower() in (".qmd", ".rmd"):
+        try:
+            with file_path.open("r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except Exception as e:
+            logger.error(f"Error reading {file_path}: {e}")
+            return f"# Error reading file: {e}\n\n"
+        # In LLM-friendly (code-only) mode, normalize the qmd into the canonical
+        # cell-marker form so it can be extracted to .ipynb OR .qmd. In standard
+        # mode keep the qmd verbatim (exact reconstruction).
+        if extract_code_only:
+            try:
+                from .quarto_cells import qmd_to_llm_cells
+                return qmd_to_llm_cells(text)
+            except Exception as e:
+                logger.error(f"Error converting qmd to cells {file_path}: {e}")
+                return text
+        return text
     else:
         try:
             with file_path.open("r", encoding="utf-8", errors="replace") as f:
@@ -1214,19 +1232,29 @@ def extract_notebooks_to_ipynb(archive_file_path, output_directory, replace_exis
 
     output_directory.mkdir(parents=True, exist_ok=True)
 
+    from .quarto_cells import has_cell_markers
+
     for filename, file_content, is_llm_friendly in _parse_archive_sections(content):
-        if not filename.endswith(".ipynb"):
+        # Accept .ipynb directly, and also coerce a cell-form .qmd/.Rmd to .ipynb
+        # ("extract to anything" from the canonical cell form).
+        is_nb = filename.endswith(".ipynb")
+        is_quarto_cells = (
+            filename.lower().endswith((".qmd", ".rmd"))
+            and has_cell_markers(file_content)
+        )
+        if not (is_nb or is_quarto_cells):
             logger.debug(f"Skipping non-notebook file: {filename}")
             continue
 
-        output_path = output_directory / filename
+        out_name = filename if is_nb else str(Path(filename).with_suffix(".ipynb"))
+        output_path = output_directory / out_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if output_path.exists() and not replace_existing:
             output_path = output_path.with_stem(f"{output_path.stem}_copy")
             logger.info(f"File exists, using {output_path.name}")
 
-        notebook = _reconstruct_notebook_from_cells(file_content, filename, kernel=kernel)
+        notebook = _reconstruct_notebook_from_cells(file_content, out_name, kernel=kernel)
         if notebook is None:
             continue
 
@@ -1294,10 +1322,20 @@ def extract_notebooks_and_quarto(archive_file_path, output_directory, replace_ex
                 logger.info(f"Created notebook: {output_path}")
             except Exception as e:
                 logger.error(f"Error writing {output_path}: {e}")
-        else:  # .qmd
+        else:  # .qmd / .Rmd
+            from .quarto_cells import llm_cells_to_qmd, has_cell_markers
+            if is_llm_friendly and has_cell_markers(file_content):
+                # Canonical cell form -> reconstruct a .qmd (target chosen here).
+                kmeta = _detect_notebook_kernel(file_content, kernel=kernel)
+                ks = kmeta.get("kernelspec", {})
+                lang = "r" if (ks.get("language", "").lower() == "r"
+                               or ks.get("name", "").lower() in ("ir", "r_env")) else "python"
+                out_text = llm_cells_to_qmd(file_content, default_lang=lang)
+            else:
+                out_text = file_content  # back-compat: verbatim qmd blob
             try:
                 with output_path.open("w", encoding="utf-8") as file:
-                    file.write(file_content)
+                    file.write(out_text)
                 logger.info(f"Created Quarto file: {output_path}")
             except Exception as e:
                 logger.error(f"Error writing {output_path}: {e}")
