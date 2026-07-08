@@ -1,34 +1,33 @@
 name: Compliance Scan
 
-on: [push, pull_request]
+# Blocks a forbidden company identifier from a PUBLIC repo (security mandate,
+# public-only). The forbidden pattern is base64-obfuscated so THIS file carries
+# none of it and is itself safe to commit publicly (same convention as the
+# txtarchive guard, with case-insensitive matching + variants + a visibility gate).
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '17 7 * * *'   # daily backstop: catch a repo flipped public out-of-band
 
 jobs:
   scan-for-sensitive-data:
+    if: ${{ github.event.repository.visibility == 'public' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Scan for forbidden terms
+      - uses: actions/checkout@v4
+      - name: Scan tracked files for forbidden terms
         run: |
-          # 1. Define the forbidden term in Base64 (Obfuscated)
-          # "aXVoZWFsdGg=" decodes to the forbidden company name
-          ENCODED_TERM="aXVoZWFsdGg="
-          
-          # 2. Decode it at runtime only
-          FORBIDDEN=$(echo "$ENCODED_TERM" | base64 --decode)
-          
-          echo "Scanning codebase for forbidden terms..."
-          
-          # 3. Run grep
-          # -r: recursive
-          # -I: ignore binary files
-          # --exclude-dir=.git: ignore git history
-          # --exclude="compliance-scan.yaml": ignore this file (just in case)
-          
-          if grep -rnI --exclude-dir=.git "$FORBIDDEN" .; then
-              echo "❌ FAILURE: Forbidden company data found in the files listed above."
-              exit 1
-          else
-              echo "✅ SUCCESS: No forbidden terms found."
-              exit 0
+          FORBIDDEN="$(echo 'aXVbIF8tXT9oZWFsdGg=' | base64 --decode)"
+          fail=0
+          while IFS= read -r f; do
+            if grep -niE "$FORBIDDEN" -- "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::forbidden company identifier present in $f"
+              fail=1
+            fi
+          done < <(git ls-files)
+          if [ "$fail" -ne 0 ]; then
+            echo "FAILURE: forbidden identifiers found (filenames above). Scrub before this repo is public."
+            exit 1
           fi
+          echo "SUCCESS: no forbidden terms found."
