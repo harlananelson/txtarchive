@@ -23,7 +23,8 @@
           nativeBuildInputs = with pythonPackages; [ setuptools wheel build ];
           
           # Propagated inputs = python libraries needed at runtime
-          propagatedBuildInputs = with pythonPackages; [ requests mammoth python-docx pypandoc ];
+          # (must match pyproject.toml dependencies)
+          propagatedBuildInputs = with pythonPackages; [ requests mammoth python-docx pypandoc beautifulsoup4 pyyaml ];
 
           # CORRECTIVE ACTION: Ensure pandoc binary is visible to the python app
           makeWrapperArgs = [ "--prefix PATH : ${pkgs.pandoc}/bin" ];
@@ -45,6 +46,7 @@
           ];
 
           shellHook = ''
+            export USER=''${USER:-$(whoami)}
             export UV_LINK_MODE=copy
 
             if [ ! -d ".venv" ]; then
