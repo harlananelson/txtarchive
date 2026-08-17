@@ -319,6 +319,14 @@ def add_common_archive_args(parser):
         help='Show what would be archived without writing any files. '
              'Reports file count, estimated size, and lists included/excluded files.'
     )
+    parser.add_argument(
+        '--update',
+        action='store_true',
+        help='Incremental mode: rewrite the archive (and each split part) only when '
+             'its content actually changed (the archive date line is ignored in the '
+             'comparison), and delete stale part files. Unchanged outputs keep their '
+             'mtime, so a daily re-run touches only what changed.'
+    )
 
 def _describe_parser(parser, name=None):
     """Extract a machine-readable description of a parser's arguments."""
@@ -795,6 +803,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             include_subdirs=args.include_subdirs,
             explicit_files=getattr(args, 'explicit_files', None),
             dry_run=getattr(args, 'dry_run', False),
+            update_only=getattr(args, 'update', False),
         )
 
     def handle_archive_and_ingest(args):

@@ -379,6 +379,30 @@ def _make_kernel_metadata(kernel_name):
     }
 
 
+def _jupyter_kernel_from_raw_yaml(content):
+    """Parse ``jupyter: <kernel>`` from a Raw Cell YAML front matter block."""
+    in_raw = False
+    in_yaml = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# Raw Cell "):
+            in_raw = True
+            in_yaml = False
+            continue
+        if not in_raw:
+            continue
+        if stripped == '"""':
+            if in_yaml:
+                break
+            in_yaml = True
+            continue
+        if in_yaml and stripped == "---":
+            continue
+        if in_yaml and stripped.startswith("jupyter:"):
+            return stripped.split(":", 1)[1].strip()
+    return None
+
+
 def _detect_notebook_kernel(content, kernel=None):
     """Detect notebook language from content and return appropriate kernel metadata.
 
@@ -386,6 +410,10 @@ def _detect_notebook_kernel(content, kernel=None):
     """
     if kernel:
         return _make_kernel_metadata(kernel)
+
+    yaml_kernel = _jupyter_kernel_from_raw_yaml(content)
+    if yaml_kernel:
+        return _make_kernel_metadata(yaml_kernel)
 
     is_r = bool(
         re.search(r'\blibrary\(', content) or
@@ -918,6 +946,7 @@ def archive_files(
     include_subdirs=None,
     explicit_files=None,
     dry_run=False,
+    update_only=False,
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
@@ -1098,17 +1127,24 @@ def archive_files(
             escaped_content = content.replace("---\nFilename: ", "---\\nFilename: ")
             all_contents += f"---\nFilename: {rel_path}\n---\n{escaped_content}\n\n"
 
-    with output_file_path.open("w", encoding="utf-8") as file:
-        file.write(all_contents)
-
-    logger.info(f"Archive created at: {output_file_path}")
+    if update_only:
+        from .split_files import _write_if_changed
+        if _write_if_changed(output_file_path, all_contents):
+            logger.info(f"Archive updated at: {output_file_path}")
+        else:
+            logger.info(f"Archive unchanged: {output_file_path} — kept existing file")
+    else:
+        with output_file_path.open("w", encoding="utf-8") as file:
+            file.write(all_contents)
+        logger.info(f"Archive created at: {output_file_path}")
 
     if split_output:
         from .split_files import split_file
         split_dir = Path(split_output_dir) if split_output_dir else output_file_path.parent / f"split_{output_file_path.stem}"
         split_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Ensured split output directory exists: {split_dir}")
-        split_file(output_file_path, max_tokens=max_tokens, output_dir=split_dir)
+        split_file(output_file_path, max_tokens=max_tokens, output_dir=split_dir,
+                   update_only=update_only)
         logger.info(f"Split files created in: {split_dir}")
 
     return output_file_path
