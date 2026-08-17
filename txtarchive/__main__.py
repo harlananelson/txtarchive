@@ -5,10 +5,25 @@ from importlib.metadata import version
 from txtarchive.packunpack import archive_files, run_unpack, archive_subdirectories, run_extract_notebooks, run_extract_notebooks_and_quarto
 import os
 import json as json_module
-from txtarchive.ask_sage import ingest_document
 from .header import logger
 
-__version__ = version("txtarchive")
+
+def ingest_document(*args, **kwargs):
+    """Lazy proxy for ask_sage.ingest_document.
+
+    ask_sage imports `requests`, which archive-only environments (e.g. the
+    checkout on PYTHONPATH inside a minimal nix shell) don't have. Importing
+    it here, at call time, keeps plain `archive`/`unpack` runs dependency-free.
+    """
+    from txtarchive.ask_sage import ingest_document as _ingest
+    return _ingest(*args, **kwargs)
+
+
+try:
+    __version__ = version("txtarchive")
+except Exception:
+    # Running from a source checkout on PYTHONPATH (not pip-installed)
+    __version__ = "0.0.0+checkout"
 
 def handle_ingestion_response(response_data, file_path):
     """
