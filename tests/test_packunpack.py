@@ -245,6 +245,22 @@ class TestReconstructNotebook:
         nb = _reconstruct_notebook_from_cells(content, "test.ipynb", kernel="r_env")
         assert nb["metadata"]["kernelspec"]["name"] == "r_env"
 
+    def test_jupyter_kernel_from_raw_yaml(self):
+        content = (
+            '# Raw Cell 1\n'
+            '"""\n'
+            '---\n'
+            'title: Test\n'
+            'jupyter: pyspark-lhn-dev\n'
+            '---\n'
+            '"""\n'
+            '\n'
+            '# Cell 1\n'
+            'x = 1\n'
+        )
+        nb = _reconstruct_notebook_from_cells(content, "test.ipynb")
+        assert nb["metadata"]["kernelspec"]["name"] == "pyspark-lhn-dev"
+
     def test_empty_content_returns_empty_notebook(self):
         nb = _reconstruct_notebook_from_cells("", "test.ipynb")
         assert nb is not None

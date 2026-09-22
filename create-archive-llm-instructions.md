@@ -326,6 +326,7 @@ the raw cell and Quarto never sees the header.
 ---
 title: "Analysis Title"
 author: "Author Name"
+jupyter: pyspark-lhn-dev
 date: today
 format:
   html:
@@ -344,6 +345,11 @@ execute:
 3. Raw content follows (typically YAML front matter with `---` delimiters)
 4. Closing `"""` on its own line
 5. Content inside quotes becomes a `cell_type: "raw"` notebook cell
+6. Include `jupyter: <kernel_name>` in the YAML when the notebook targets a
+   non-default kernel (e.g. `pyspark-lhn-dev` for HDL PySpark, `r_env` for R).
+   On `extract-notebooks`, txtarchive reads this field and sets
+   `metadata.kernelspec` automatically. You can still pass `--kernel` to
+   override.
 
 **WRONG — raw cell without triple quotes (content is silently lost):**
 ```
@@ -367,6 +373,23 @@ title: "Analysis Title"
 not markdown cells. If the raw cell is lost during unpack, the rendered
 HTML will have no title, no table of contents, no embedded resources, and
 no other format settings.
+
+**Common failure — YAML in a markdown cell (WRONG):**
+
+```
+# Markdown Cell 1
+"""
+---
+title: "Analysis Title"
+jupyter: python3
+---
+# Title and body merged here ...
+"""
+```
+
+Quarto ignores this YAML. The archive must split YAML (raw cell 1) from the
+title/body markdown (markdown cell 2). For HDL deploy workflow and round-trip
+checklist, see `~/projects/hdl-harness/docs/txtarchive-hdl-integration.md`.
 
 ### Anti-Patterns (LLM-Friendly Format)
 
@@ -426,9 +449,13 @@ The LLM-friendly parser expects `###############################################
 - [ ] File info line is `# FILE N: path` (space after colon)
 - [ ] Blank line after second separator before content
 - [ ] Code cells marked with `# Cell N`
+- [ ] Quarto YAML is `# Raw Cell 1` (not `# Markdown Cell 1`)
+- [ ] Raw cells wrapped in `"""` on separate lines (content silently lost otherwise)
+- [ ] Raw YAML includes `jupyter: <kernel>` when not default python3
 - [ ] Markdown cells marked with `# Markdown Cell N`
 - [ ] Markdown content wrapped in `"""` on separate lines
 - [ ] Cell numbers may have gaps (this is correct)
+- [ ] Round-trip: `extract-notebooks` → cell 0 is `raw`, kernelspec matches `jupyter:`
 
 ---
 
