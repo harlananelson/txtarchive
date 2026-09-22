@@ -418,6 +418,35 @@ unpack_files_auto(
 export ACCESS_TOKEN="your_ask_sage_api_token"
 ```
 
+
+## Quarto cell edit by label
+
+Posit/Quarto has no official “edit cell by ID” API. `txtarchive.quarto_cells` provides a small targeted mutate-by-label surface (cell AST edit, not whole-file replace):
+
+```python
+from txtarchive.quarto_cells import get_cell, set_cell, list_cell_labels
+
+labels = list_cell_labels(qmd_text)          # ["setup", "plot", ...]
+cell = get_cell(qmd_text, label="setup")     # source / body / options / index
+updated = set_cell(
+    qmd_text,
+    label="setup",
+    source="library(tidyr)\nlibrary(dplyr)",
+    keep_options=True,   # preserve other #| options (e.g. include: false)
+)
+```
+
+Labels match Quarto `#| label:` inside the cell and knitr-style `{r setup, ...}` headers. Missing or duplicate labels raise `CellLookupError`.
+
+CLI:
+
+```bash
+python -m txtarchive list-cell-labels demo.qmd
+python -m txtarchive get-cell demo.qmd --label setup
+python -m txtarchive get-cell demo.qmd --label setup --body-only
+python -m txtarchive set-cell demo.qmd --label setup --source-file body.R --in-place
+```
+
 ## Feature Roadmap
 
 ### Current Capabilities
