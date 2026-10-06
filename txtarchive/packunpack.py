@@ -3,6 +3,20 @@ import re
 from pathlib import Path
 from .header import logger
 from datetime import datetime
+from .source_paths import (
+    ArchiveEntry,
+    archive_alias,
+    format_knowledge_manifest,
+    git_context,
+    iter_llm_sections,
+    iter_standard_sections,
+    knowledge_file_text,
+    number_entries,
+    parse_knowledge_text,
+    render_archive,
+    repo_relative_posix,
+    safe_child,
+)
 
 def read_notebook(notebook_path):
     """
@@ -66,7 +80,9 @@ def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py",
     Concatenate files of specified types in a directory into a single text file.
     """
     logger.info("Concatenating files in directory: %s", directory)
-    all_contents = ""
+    directory = Path(directory)
+    git = git_context(directory)
+    entries = []
 
     for path in directory.rglob("*"):
         if (
@@ -105,10 +121,25 @@ def concatenate_files(directory, combined_file_path, file_types=[".yaml", ".py",
             if content is not None:
                 if is_init_file:
                     logger.info(f"Adding __init__.py content to archive, path: {rel_path}")
-                all_contents += f"---\nFilename: {rel_path}\n---\n{content}\n\n"
+                entries.append(ArchiveEntry(
+                    alias=archive_alias(rel_path),
+                    source=repo_relative_posix(path, directory, git),
+                    content=content,
+                ))
             elif is_init_file:
                 logger.warning(f"No content was obtained from __init__.py at {path}")
 
+    entries.sort(key=lambda entry: entry.alias)
+    entries = number_entries(entries)
+    created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    all_contents = render_archive(
+        entries,
+        llm_friendly=False,
+        git=git,
+        created=created,
+        include_patch_instructions=False,
+        line_numbers=False,
+    )
     logger.info(f"Total content size to write: {len(all_contents)} bytes")
     
     with combined_file_path.open("w", encoding="utf-8") as file:
@@ -132,8 +163,6 @@ def unpack_files(output_directory, combined_file_path, replace_existing=False):
     with combined_file_path.open("r", encoding="utf-8") as file:
         combined_content = file.read()
 
-    sections = combined_content.split("---\nFilename: ")[1:]
-
     if not output_directory.exists():
         try:
             output_directory.mkdir(parents=True, exist_ok=True)
@@ -144,18 +173,11 @@ def unpack_files(output_directory, combined_file_path, replace_existing=False):
     else:
         logger.info("Directory already exists: %s", output_directory)
 
-    for section in sections:
-        filename = "<unknown>"
+    for filename, content, _meta in iter_standard_sections(combined_content):
         try:
-            filename, content = section.split("\n---\n", 1)
-            normalized_filename = filename.strip().replace('\\\\', '/').replace('\\', '/')
-            logger.debug(f"Normalized filename: {normalized_filename}")
-
-            output_path = (output_directory / normalized_filename).resolve()
-
-            # Path traversal protection
-            if not output_path.is_relative_to(output_directory.resolve()):
-                logger.error(f"Path traversal blocked: {normalized_filename}")
+            output_path = safe_child(output_directory, filename)
+            if output_path is None:
+                logger.error(f"Path traversal blocked: {filename}")
                 continue
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -594,10 +616,9 @@ def unpack_llm_archive(output_directory, combined_file_path, replace_existing=Fa
     with combined_file_path.open("r", encoding="utf-8") as file:
         content = file.read()
 
-    # Parse LLM-friendly format: split on file separators
-    sections = content.split("################################################################################\n# FILE ")
+    sections = list(iter_llm_sections(content))
 
-    if len(sections) <= 1:
+    if not sections:
         logger.warning("No files found in LLM-friendly archive format")
         return
 
@@ -610,27 +631,12 @@ def unpack_llm_archive(output_directory, combined_file_path, replace_existing=Fa
             logger.error(f"Error creating directory: {e}")
             return
 
-    # Process each file section
-    for section in sections[1:]:  # Skip the header before first file
-        # Parse: "N: filename\n###...###\n\ncontent"
-        lines = section.split('\n', 2)
-        if len(lines) < 3:
-            continue
-
-        # Extract filename from "N: filename"
-        first_line = lines[0]
-        if ': ' in first_line:
-            filename = first_line.split(': ', 1)[1].strip()
-        else:
-            continue
-
-        # Skip the separator line (line 1 is "###...###")
-        # Content starts at line 2; strip leading blank line
-        file_content = lines[2].lstrip("\n") if len(lines) > 2 else ""
-
-        # Create file path with traversal protection
-        file_path = (output_directory / filename).resolve()
-        if not file_path.is_relative_to(output_directory.resolve()):
+    # Process each file section. The name on the FILE line is the archive-relative
+    # path (the alias). path: metadata is the git checkout path and is not used
+    # as the unpack destination, so a subdirectory archive still restores flat.
+    for filename, file_content, _meta in sections:
+        file_path = safe_child(output_directory, filename)
+        if file_path is None:
             logger.error(f"Path traversal blocked: {filename}")
             continue
 
@@ -682,15 +688,82 @@ def auto_detect_archive_format(archive_path):
         str: 'standard' or 'llm-friendly'
     """
     with open(archive_path, 'r', encoding='utf-8') as f:
-        content = f.read(2000)  # Read first 2000 chars
-        
-    if '################################################################################\n# FILE ' in content:
+        # The source manifest can push the first file delimiter past a short
+        # prefix. The format banner is always near the top; also scan a wider
+        # window so a delimiter-only (pre-banner) archive is still recognized.
+        content = f.read(65536)
+
+    if (
+        "# LLM-FRIENDLY CODE ARCHIVE" in content
+        or "################################################################################\n# FILE " in content
+    ):
         return 'llm-friendly'
-    elif '---\nFilename: ' in content:
+    elif '# Standard Archive Format' in content or '---\nFilename: ' in content:
         return 'standard'
     else:
         # Default to standard for backward compatibility
         return 'standard'
+
+
+def _is_knowledge_file(path):
+    """True when the file begins with a flattened-knowledge source header."""
+    try:
+        with Path(path).open("r", encoding="utf-8", errors="replace") as handle:
+            first = handle.readline(4096)
+    except OSError:
+        return False
+    return first.startswith("# source:")
+
+
+def _is_knowledge_directory(path):
+    path = Path(path)
+    if not path.is_dir():
+        return False
+    for child in path.iterdir():
+        if child.is_file() and child.name != "MANIFEST.txt" and _is_knowledge_file(child):
+            return True
+    return False
+
+
+def unpack_knowledge_pack(output_directory, knowledge_path, replace_existing=False):
+    """Restore numbered knowledge files using each file's ``# source:`` path.
+
+    ``knowledge_path`` may be one knowledge file or a directory of them.
+    ``MANIFEST.txt`` and files without a source header are skipped. The source
+    path is the checkout path recorded at pack time (git-root-relative when the
+    archive came from a work tree).
+    """
+    knowledge_path = Path(knowledge_path)
+    output_directory = Path(output_directory)
+    output_directory.mkdir(parents=True, exist_ok=True)
+
+    if knowledge_path.is_file():
+        files = [knowledge_path]
+    else:
+        files = sorted(p for p in knowledge_path.iterdir() if p.is_file())
+
+    for file_path in files:
+        if file_path.name == "MANIFEST.txt":
+            continue
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.error(f"Error reading knowledge file {file_path}: {exc}")
+            continue
+        parsed = parse_knowledge_text(text)
+        if parsed is None:
+            continue
+        dest = safe_child(output_directory, parsed["path"])
+        if dest is None:
+            logger.error(f"Path traversal blocked: {parsed['path']}")
+            continue
+        if dest.exists() and not replace_existing:
+            logger.info(f"Skipped existing file: {dest}")
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(parsed["content"], encoding="utf-8")
+        logger.info(f"Unpacked knowledge file: {dest}")
+    logger.info(f"Knowledge files unpacked into: {output_directory}")
 
 
 def unpack_files_auto(output_directory, combined_file_path, replace_existing=False, kernel=None, force=False):
@@ -704,6 +777,29 @@ def unpack_files_auto(output_directory, combined_file_path, replace_existing=Fal
     Use ``force=True`` or ``--force`` on the CLI to override and attempt
     extraction anyway via ``unpack_llm_archive``.
     """
+    archive_path = Path(combined_file_path)
+    if archive_path.is_dir() and _is_knowledge_directory(archive_path):
+        logger.info("Detected numbered knowledge pack")
+        return unpack_knowledge_pack(output_directory, archive_path, replace_existing)
+    if archive_path.is_file() and _is_knowledge_file(archive_path):
+        logger.info("Detected numbered knowledge file")
+        return unpack_knowledge_pack(output_directory, archive_path, replace_existing)
+    if archive_path.is_dir():
+        # Split parts each carry the manifest. Join them, then unpack the text.
+        joined = _read_archive_content(archive_path)
+        if not joined:
+            raise SystemExit(f"Error: no archive content in '{archive_path}'")
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8")
+        try:
+            tmp.write(joined)
+            tmp.close()
+            return unpack_files_auto(
+                output_directory, tmp.name, replace_existing, kernel=kernel, force=force,
+            )
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
     format_type = auto_detect_archive_format(combined_file_path)
 
     logger.info(f"Detected archive format: {format_type}")
@@ -947,6 +1043,10 @@ def archive_files(
     explicit_files=None,
     dry_run=False,
     update_only=False,
+    patch_instructions=None,
+    line_numbers=False,
+    knowledge=False,
+    knowledge_dir=None,
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
@@ -959,16 +1059,31 @@ def archive_files(
 
     logger.info(f"Archiving files from: {directory}")
     logger.info(f"Excluding directories: {exclude_dirs}")
-    all_contents = ""
     creation_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    all_contents += f"# Archive created on: {creation_date}\n\n"
-
-    if llm_friendly:
-        all_contents += "# LLM-FRIENDLY CODE ARCHIVE\n"
-        all_contents += f"# Generated from: {directory}\n"
-        all_contents += f"# Date: {creation_date}\n\n"
+    git = git_context(directory)
+    if git.in_git:
+        logger.info(
+            "Git checkout: repo %s @ %s (%s)",
+            git.repo_name,
+            git.commit or "none",
+            git.branch or "none",
+        )
+    use_line_numbers = bool(line_numbers) and bool(llm_friendly)
+    if line_numbers and not llm_friendly:
+        logger.warning("line numbers apply to LLM-friendly archives only; ignoring")
+    if patch_instructions is None:
+        use_patch_instructions = bool(llm_friendly)
     else:
-        all_contents += "# Standard Archive Format\n\n"
+        use_patch_instructions = bool(patch_instructions) and bool(llm_friendly)
+
+    def _push(rel_path, content, file_path):
+        alias = archive_alias(rel_path)
+        file_list.append(ArchiveEntry(
+            alias=alias,
+            source=repo_relative_posix(file_path, directory, git),
+            content=content,
+        ))
+        processed_files.add(alias)
 
     if not directory.is_dir():
         logger.error(f"Input directory does not exist: {directory}")
@@ -1004,8 +1119,7 @@ def archive_files(
             content = _read_file_content(file_path, extract_code_only=extract_code_only)
 
             if content is not None:
-                file_list.append((rel_path, content))
-                processed_files.add(str(rel_path))
+                _push(rel_path, content, file_path)
 
         logger.info(f"Processed {len(file_list)} explicit files")
 
@@ -1025,13 +1139,11 @@ def archive_files(
             try:
                 with path.open("r", encoding="utf-8", errors="replace") as file:
                     content = file.read()
-                file_list.append((rel_path, content))
-                processed_files.add(str(rel_path))
+                _push(rel_path, content, path)
             except Exception as e:
                 logger.error(f"Error reading root file {path}: {e}")
                 content = f"# Error reading file: {e}\n\n"
-                file_list.append((rel_path, content))
-                processed_files.add(str(rel_path))
+                _push(rel_path, content, path)
 
         # Get file iterator
         file_iterator = directory.rglob("*") if include_subdirectories else directory.glob("*")
@@ -1057,7 +1169,7 @@ def archive_files(
                 if is_root_file and path.name in root_files:
                     logger.info(f"Skipping already processed root file: {path}")
                     continue
-                if str(rel_path) in processed_files:
+                if archive_alias(rel_path) in processed_files:
                     logger.info(f"Skipping already processed file: {path}")
                     continue
                 if file_prefixes and not is_gitignore and not any(path.name.startswith(prefix) for prefix in file_prefixes):
@@ -1067,14 +1179,14 @@ def archive_files(
                 content = _read_file_content(path, extract_code_only=extract_code_only)
 
                 if content is not None:
-                    file_list.append((rel_path, content))
-                    processed_files.add(str(rel_path))
+                    _push(rel_path, content, path)
 
     # Rest of the function continues here (sorting, TOC, output)...
-    file_list.sort(key=lambda x: str(x[0]))
+    file_list.sort(key=lambda entry: entry.alias)
+    file_list = number_entries(file_list)
 
     if dry_run:
-        total_chars = sum(len(content) for _, content in file_list)
+        total_chars = sum(len(entry.content) for entry in file_list)
         estimated_tokens = total_chars // 4  # rough estimate: ~4 chars per token
         format_name = "LLM-friendly" if llm_friendly else "Standard"
         issues = []
@@ -1094,15 +1206,16 @@ def archive_files(
         print(f"Source directory:  {directory}")
         print(f"Output file:      {output_file_path}")
         print(f"Format:           {format_name}")
+        print(f"Repo:             {git.repo_name} @ {git.commit or 'none'} ({git.branch or 'none'})")
         print(f"Files to archive: {len(file_list)}")
         print(f"Estimated chars:  {total_chars:,}")
         print(f"Estimated tokens: {estimated_tokens:,}")
         if split_output:
             print(f"Split output:     yes (max {max_tokens:,} tokens/file)")
         print(f"\nFiles that would be included:")
-        for idx, (rel_path, content) in enumerate(file_list, 1):
-            size_kb = len(content) / 1024
-            print(f"  {idx:3d}. {rel_path} ({size_kb:.1f} KB)")
+        for idx, entry in enumerate(file_list, 1):
+            size_kb = len(entry.content) / 1024
+            print(f"  {idx:3d}. {entry.alias} -> {entry.source} ({size_kb:.1f} KB)")
 
         if issues:
             print(f"\nIssues:")
@@ -1113,19 +1226,14 @@ def archive_files(
         print("No files were written.")
         return None
 
-    all_contents += "# TABLE OF CONTENTS\n"
-    all_contents += "\n".join(f"{idx}. {rel_path}" for idx, (rel_path, _) in enumerate(file_list, 1))
-    all_contents += "\n\n"
-
-    if llm_friendly:
-        for idx, (rel_path, content) in enumerate(file_list, 1):
-            all_contents += f"{'#' * 80}\n# FILE {idx}: {rel_path}\n{'#' * 80}\n\n"
-            all_contents += content
-            all_contents += "\n\n"
-    else:
-        for rel_path, content in file_list:
-            escaped_content = content.replace("---\nFilename: ", "---\\nFilename: ")
-            all_contents += f"---\nFilename: {rel_path}\n---\n{escaped_content}\n\n"
+    all_contents = render_archive(
+        file_list,
+        llm_friendly=llm_friendly,
+        git=git,
+        created=creation_date,
+        include_patch_instructions=use_patch_instructions,
+        line_numbers=use_line_numbers,
+    )
 
     if update_only:
         from .split_files import _write_if_changed
@@ -1147,7 +1255,80 @@ def archive_files(
                    update_only=update_only)
         logger.info(f"Split files created in: {split_dir}")
 
+    if knowledge or knowledge_dir:
+        dest = Path(knowledge_dir) if knowledge_dir else (
+            output_file_path.parent / f"{output_file_path.stem}_knowledge"
+        )
+        _write_knowledge_pack(file_list, dest, git, update_only=update_only)
+        logger.info(f"Knowledge files written in: {dest}")
+
     return output_file_path
+
+
+def _write_knowledge_pack(entries, dest, git, update_only=False):
+    """Write flattened numbered knowledge files plus MANIFEST.txt.
+
+    Each file starts with ``# source: <repo-relative path> (repo <name> @ <sha>)``.
+    Stale numbered files from a previous pack of this directory are removed so a
+    re-run cannot leave a Copilot upload pointing at a deleted source.
+    """
+    from .split_files import _write_if_changed
+
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    expected = {"MANIFEST.txt"}
+    manifest = format_knowledge_manifest(entries, git)
+
+    def _emit(path, text):
+        if update_only:
+            _write_if_changed(path, text)
+        else:
+            path.write_text(text, encoding="utf-8")
+
+    _emit(dest / "MANIFEST.txt", manifest)
+    for entry in entries:
+        _emit(dest / entry.numbered, knowledge_file_text(entry, git))
+        expected.add(entry.numbered)
+
+    for child in dest.iterdir():
+        if not child.is_file() or child.name in expected:
+            continue
+        if child.name == "MANIFEST.txt" or re.match(r"^\d+-.*\.txt$", child.name):
+            child.unlink()
+            logger.info(f"Removed stale knowledge file: {child}")
+
+
+def _split_part_sort_key(path):
+    """Sort ``name_part2`` before ``name_part10`` (numeric, not lexicographic)."""
+    match = re.search(r"_part(\d+)$", Path(path).stem)
+    if match:
+        return (0, int(match.group(1)), Path(path).name)
+    return (1, 0, Path(path).name)
+
+
+def _split_part_for_join(split_content, keep_header):
+    """Clean one split chunk for reassembly into a single archive string.
+
+    ``# Part N`` lines are dropped (they are navigation, not file content).
+    Chunks after the first repeat the source manifest; only their file sections
+    are kept so the repeated header does not become part of the previous file.
+    """
+    cleaned_lines = [
+        line for line in split_content.splitlines()
+        if line.strip() not in ["<DOCUMENT>", "</DOCUMENT>"]
+        and not line.startswith("# Part ")
+    ]
+    text = "\n".join(cleaned_lines)
+    if text and not text.endswith("\n"):
+        text += "\n"
+    if keep_header:
+        return text
+    llm_at = text.find("################################################################################\n# FILE ")
+    std_at = text.find("---\nFilename: ")
+    starts = [pos for pos in (llm_at, std_at) if pos != -1]
+    if not starts:
+        return ""
+    return text[min(starts):]
 
 
 def _read_archive_content(archive_file_path):
@@ -1167,22 +1348,19 @@ def _read_archive_content(archive_file_path):
 
     if archive_file_path.is_dir():
         logger.info(f"Processing split files in directory: {archive_file_path}")
-        split_files = sorted(archive_file_path.glob("*.txt"), key=lambda x: x.name)
+        split_files = sorted(archive_file_path.glob("*.txt"), key=_split_part_sort_key)
         if not split_files:
             logger.error(f"No split files found in {archive_file_path}")
             return None
-        for split_file in split_files:
+        for index, split_file in enumerate(split_files):
             logger.info(f"Reading split file: {split_file}")
             try:
                 with split_file.open("r", encoding="utf-8") as file:
                     split_content = file.read()
-                    lines = split_content.splitlines()
-                    cleaned_lines = [
-                        line for line in lines
-                        if line.strip() not in ["<DOCUMENT>", "</DOCUMENT>"]
-                        and not line.startswith("# Part ")
-                    ]
-                    content += "\n".join(cleaned_lines) + "\n"
+                # Later parts repeat the manifest so each upload stands alone.
+                # When rejoining, keep that preamble only from the first part so
+                # it is not swallowed into the previous file's body.
+                content += _split_part_for_join(split_content, keep_header=(index == 0))
             except Exception as e:
                 logger.error(f"Error reading split file {split_file}: {e}")
                 continue
@@ -1214,37 +1392,14 @@ def _parse_archive_sections(content):
     Yields:
         tuple: (filename, file_content, is_llm_friendly) for each file section.
     """
-    # Try LLM-friendly format first
-    sections = content.split("################################################################################\n# FILE ")
-    is_llm_friendly = len(sections) > 1
-
-    if is_llm_friendly:
-        for section in sections[1:]:
-            lines = section.split("\n", 2)
-            if len(lines) < 3:
-                logger.warning(f"Invalid LLM-friendly section format: {section[:50]}...")
-                continue
-            file_info = lines[0].strip()
-            try:
-                file_num, filename = file_info.split(": ", 1)
-                filename = filename.strip()
-            except ValueError:
-                logger.warning(f"Invalid file info format: {file_info}")
-                continue
-            # lines[1] is the second ###...### separator, lines[2] is content
-            # Strip the leading blank line that follows the separator
-            file_content = lines[2].lstrip("\n")
+    # Try LLM-friendly format first. Path metadata lines stay out of the body,
+    # and line-number prefixes are stripped when the section declares them.
+    llm_sections = list(iter_llm_sections(content))
+    if llm_sections:
+        for filename, file_content, _meta in llm_sections:
             yield filename, file_content, True
     else:
-        # Standard format
-        sections = content.split("---\nFilename: ")[1:]
-        for section in sections:
-            try:
-                filename, file_content = section.split("\n---\n", 1)
-                filename = filename.strip()
-            except ValueError:
-                logger.warning(f"Invalid standard section format: {section[:50]}...")
-                continue
+        for filename, file_content, _meta in iter_standard_sections(content):
             yield filename, file_content, False
 
 
@@ -1404,15 +1559,9 @@ def generate_archive(study_plan_path, lhn_archive_path, output_archive_path, llm
     lhn_content = ""
     lhn_path = Path(lhn_archive_path)
     if lhn_path.is_dir():
-        for split_file in sorted(lhn_path.glob("*.txt")):
+        for index, split_file in enumerate(sorted(lhn_path.glob("*.txt"), key=_split_part_sort_key)):
             with split_file.open("r", encoding="utf-8") as f:
-                split_content = f.read()
-                lines = [
-                    line for line in split_content.splitlines()
-                    if line.strip() not in ["<DOCUMENT>", "</DOCUMENT>"]
-                    and not line.startswith("# Part ")
-                ]
-                lhn_content += "\n".join(lines) + "\n"
+                lhn_content += _split_part_for_join(f.read(), keep_header=(index == 0))
     else:
         with lhn_path.open("r", encoding="utf-8") as f:
             lhn_content = f.read()
