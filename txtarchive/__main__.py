@@ -780,7 +780,73 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         help='Fail if expected sections are missing (default: best-effort)'
     )
 
-    # Describe Command (machine-readable CLI schema)
+    # --- Quarto cell edit by label ---
+    get_cell_parser = subparsers.add_parser(
+        'get-cell',
+        help='Print a Quarto code cell by #| label',
+        description='Extract the source (or body) of a labeled code cell from a '
+                    '.qmd/.Rmd file. Matches Quarto #| label: and knitr-style '
+                    '{r label, ...} headers.',
+    )
+    get_cell_parser.add_argument('qmd_file', type=str, help='Path to the .qmd/.Rmd file')
+    get_cell_parser.add_argument(
+        '--label', required=True, help='Cell label to retrieve'
+    )
+    get_cell_parser.add_argument(
+        '--body-only',
+        action='store_true',
+        help='Print executable body only (omit leading #| option lines)',
+    )
+
+    set_cell_parser = subparsers.add_parser(
+        'set-cell',
+        help='Replace a Quarto code cell body by #| label',
+        description='Targeted edit: replace one labeled code cell body while '
+                    'preserving other #| options (unless --no-keep-options). '
+                    'Fills the Posit gap of no official edit-cell-by-ID.',
+    )
+    set_cell_parser.add_argument('qmd_file', type=str, help='Path to the .qmd/.Rmd file')
+    set_cell_parser.add_argument(
+        '--label', required=True, help='Cell label to replace'
+    )
+    src_group = set_cell_parser.add_mutually_exclusive_group(required=True)
+    src_group.add_argument(
+        '--source-file',
+        type=str,
+        help='File whose contents become the new cell body (use - for stdin)',
+    )
+    src_group.add_argument(
+        '--source',
+        type=str,
+        help='Inline new cell body (prefer --source-file for multi-line)',
+    )
+    set_cell_parser.add_argument(
+        '--no-keep-options',
+        action='store_true',
+        help='Replace entire cell interior (still ensures #| label: is present)',
+    )
+    set_cell_parser.add_argument(
+        '-o', '--output',
+        type=str,
+        default=None,
+        help='Write result here (default: stdout). Use --in-place to overwrite.',
+    )
+    set_cell_parser.add_argument(
+        '--in-place',
+        action='store_true',
+        help='Overwrite qmd_file with the updated document',
+    )
+
+    list_cell_labels_parser = subparsers.add_parser(
+        'list-cell-labels',
+        help='List #| labels of code cells in a .qmd/.Rmd',
+        description='Print one label per line, in document order.',
+    )
+    list_cell_labels_parser.add_argument(
+        'qmd_file', type=str, help='Path to the .qmd/.Rmd file'
+    )
+
+        # Describe Command (machine-readable CLI schema)
     describe_parser = subparsers.add_parser(
         'describe',
         help='Output machine-readable JSON description of CLI commands and options',
@@ -813,6 +879,9 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         'convert-word': convert_word_parser,
         'convert-html': convert_html_parser,
         'extract-report': extract_report_parser,
+        'get-cell': get_cell_parser,
+        'set-cell': set_cell_parser,
+        'list-cell-labels': list_cell_labels_parser,
         'describe': describe_parser,
     }
 
@@ -1025,6 +1094,62 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             if args.strict:
                 raise
 
+    def handle_get_cell(args):
+        from pathlib import Path
+        from txtarchive.quarto_cells import get_cell, CellLookupError
+        qmd = Path(args.qmd_file).read_text(encoding="utf-8")
+        try:
+            cell = get_cell(qmd, label=args.label)
+        except CellLookupError as e:
+            logger.error(str(e))
+            raise SystemExit(1) from e
+        text_out = cell["body"] if args.body_only else cell["source"]
+        print(text_out)
+
+    def handle_set_cell(args):
+        from pathlib import Path
+        import sys
+        from txtarchive.quarto_cells import set_cell, CellLookupError
+        path = Path(args.qmd_file)
+        qmd = path.read_text(encoding="utf-8")
+        if args.source_file is not None:
+            if args.source_file == "-":
+                source = sys.stdin.read()
+            else:
+                source = Path(args.source_file).read_text(encoding="utf-8")
+        else:
+            source = args.source
+        # Normalize trailing newline from files so cell body stays tidy
+        if source.endswith("\n"):
+            source = source[:-1]
+        try:
+            updated = set_cell(
+                qmd,
+                label=args.label,
+                source=source,
+                keep_options=not args.no_keep_options,
+            )
+        except CellLookupError as e:
+            logger.error(str(e))
+            raise SystemExit(1) from e
+        if args.in_place:
+            path.write_text(updated, encoding="utf-8")
+            logger.info(f"Updated cell {args.label!r} in {path}")
+        elif args.output:
+            out = Path(args.output)
+            out.write_text(updated, encoding="utf-8")
+            logger.info(f"Wrote updated document to {out}")
+        else:
+            sys.stdout.write(updated if updated.endswith("\n") else updated + "\n")
+
+    def handle_list_cell_labels(args):
+        from pathlib import Path
+        from txtarchive.quarto_cells import list_cell_labels
+        qmd = Path(args.qmd_file).read_text(encoding="utf-8")
+        for lab in list_cell_labels(qmd):
+            print(lab)
+
+
     # --- Command dispatch ---
     command_handlers = {
         'ingest': handle_ingest,
@@ -1039,6 +1164,9 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
         'describe': handle_describe,
         'generate': handle_generate,
         'extract-report': handle_extract_report,
+        'get-cell': handle_get_cell,
+        'set-cell': handle_set_cell,
+        'list-cell-labels': handle_list_cell_labels,
     }
 
     handler = command_handlers.get(args.command)

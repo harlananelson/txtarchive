@@ -19,6 +19,12 @@ inside the code cell. This makes qmd -> cells -> {ipynb, qmd} lossless for the
 options (knitr dotted names are mapped to Quarto dashed names, e.g.
 ``fig.width`` -> ``fig-width``; ``TRUE``/``FALSE`` -> ``true``/``false``).
 
+Targeted cell edit API (fills a Posit gap — no official edit-cell-by-ID):
+  - ``get_cell(text, label=...)`` / ``set_cell(qmd, label=..., source=...)``
+  - ``list_cell_labels(text)``; missing/duplicate labels raise ``CellLookupError``
+  - Labels match Quarto ``#| label:`` and knitr-style ``{r setup, ...}`` headers
+  - ``set_cell`` mutates one fence in place (preserves ``#|`` options by default)
+
 Known v1 limitations (documented, not silent):
   - The cell form, like ``.ipynb``, does not store a per-cell language, so a
     notebook is assumed single-language. ``llm_cells_to_qmd`` emits one fence
@@ -257,3 +263,245 @@ def llm_cells_to_qmd(cell_text, default_lang="r"):
         else:
             parts.append(f"```{{{default_lang}}}\n{src}\n```")
     return "\n\n".join(parts) + "\n"
+
+
+# --------------------------------------------------------------------------- #
+# get / set cell by label
+# --------------------------------------------------------------------------- #
+_HASHPIPE_LABEL = re.compile(r"^#\|\s*label:\s*(.+?)\s*$")
+_HASHPIPE_OPT = re.compile(r"^#\|\s*([^:]+):\s*(.*?)\s*$")
+
+
+class CellLookupError(LookupError):
+    """Raised when a cell label is missing or appears more than once."""
+
+
+def _normalize_label_value(raw):
+    return raw.strip().strip("\"'")
+
+
+def _label_from_code_source(src):
+    """Return ``#| label:`` value from a code-cell source, or ``None``."""
+    for line in src.splitlines():
+        m = _HASHPIPE_LABEL.match(line)
+        if m:
+            return _normalize_label_value(m.group(1))
+    return None
+
+
+def _split_options_and_body(src):
+    """Split leading ``#|`` option lines from the executable body.
+
+    Returns ``(options, body)`` where ``options`` is a list of ``(key, value)``
+    pairs (keys are the Quarto option names, e.g. ``"include"``) and ``body``
+    is the remaining source with a trailing newline stripped.
+    """
+    lines = src.split("\n")
+    opts = []
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        if not ln.startswith("#|"):
+            break
+        m = _HASHPIPE_OPT.match(ln)
+        if m:
+            opts.append((m.group(1).strip(), m.group(2)))
+        i += 1
+    body = "\n".join(lines[i:]).strip("\n")
+    return opts, body
+
+
+def _render_options_and_body(opts, body):
+    lines = [f"#| {k}: {v}" for k, v in opts]
+    if body:
+        lines.append(body)
+    return "\n".join(lines)
+
+
+def _merge_options(base_opts, override_opts, label):
+    """Merge option lists by key; ``override_opts`` wins. Ensure ``label``."""
+    by_key = {k: v for k, v in base_opts}
+    order = [k for k, _v in base_opts]
+    for k, v in override_opts:
+        if k not in by_key:
+            order.append(k)
+        by_key[k] = v
+    by_key["label"] = label
+    if "label" not in order:
+        order.insert(0, "label")
+    return [(k, by_key[k]) for k in order]
+
+
+def _cells_as_list(qmd_text_or_cells):
+    """Normalize ``.qmd`` or cell-marker text to ``[(kind, src), ...]``."""
+    if has_cell_markers(qmd_text_or_cells):
+        return _iter_llm_cells(qmd_text_or_cells)
+    return _iter_llm_cells(qmd_to_llm_cells(qmd_text_or_cells))
+
+
+def _iter_qmd_fences(qmd_text):
+    """Yield metadata for each fenced code cell in a ``.qmd``/``.Rmd`` string.
+
+    Label resolution: prefer a body ``#| label:`` directive; fall back to a
+    knitr-style label in the fence header (``{r setup, ...}``).
+    """
+    lines = qmd_text.split("\n")
+    j = 0
+    while j < len(lines):
+        mo = _FENCE_OPEN.match(lines[j])
+        if not mo:
+            j += 1
+            continue
+        fence = mo.group(1)
+        lang, header_label, header_opts = _parse_chunk_header(mo.group(2))
+        open_idx = j
+        j += 1
+        body = []
+        while j < len(lines) and not re.match(
+            r"^" + re.escape(fence) + r"\s*$", lines[j]
+        ):
+            body.append(lines[j])
+            j += 1
+        close_idx = j if j < len(lines) else None
+        body_src = "\n".join(body)
+        yield {
+            "open_idx": open_idx,
+            "close_idx": close_idx,
+            "fence": fence,
+            "lang": lang,
+            "header_label": header_label,
+            "header_opts": header_opts,
+            "body_lines": body,
+            "source": body_src,
+            "label": _label_from_code_source(body_src) or header_label,
+        }
+        j += 1  # advance past closing fence (or stay at EOF)
+
+
+def list_cell_labels(qmd_text_or_cells):
+    """Return ordered labels of code cells (``.qmd`` or cell-marker text).
+
+    Only cells that carry a ``#| label:`` (after normalization) are included.
+    Knitr-style header labels are visible because ``.qmd`` input is routed
+    through :func:`qmd_to_llm_cells` first.
+    """
+    labels = []
+    for kind, src in _cells_as_list(qmd_text_or_cells):
+        if kind != "code":
+            continue
+        lab = _label_from_code_source(src)
+        if lab:
+            labels.append(lab)
+    return labels
+
+
+def get_cell(qmd_text_or_cells, label):
+    """Return the code cell with ``#| label: <label>`` (or knitr equivalent).
+
+    ``qmd_text_or_cells`` may be a ``.qmd``/``.Rmd`` string or an LLM cell-marker
+    body. Raises :class:`CellLookupError` if the label is missing or duplicated.
+
+    Returns a dict::
+
+        {
+            "label": str,
+            "kind": "code",
+            "index": int,       # 0-based index among all cells
+            "source": str,      # full cell source including #| options
+            "body": str,        # executable body without leading #| lines
+            "options": [(k, v), ...],
+        }
+    """
+    cells = _cells_as_list(qmd_text_or_cells)
+    hits = [
+        i
+        for i, (kind, src) in enumerate(cells)
+        if kind == "code" and _label_from_code_source(src) == label
+    ]
+    if not hits:
+        raise CellLookupError(f"No code cell with label {label!r}")
+    if len(hits) > 1:
+        raise CellLookupError(
+            f"Duplicate label {label!r}: found in {len(hits)} code cells "
+            f"(indices {hits})"
+        )
+    idx = hits[0]
+    _kind, src = cells[idx]
+    opts, body = _split_options_and_body(src)
+    return {
+        "label": label,
+        "kind": "code",
+        "index": idx,
+        "source": src,
+        "body": body,
+        "options": opts,
+    }
+
+
+def set_cell(qmd_text, label, source, keep_options=True):
+    """Replace the body of the labeled code cell; return the updated ``.qmd``.
+
+    Args:
+        qmd_text: full ``.qmd``/``.Rmd`` document string.
+        label: cell label to target (``#| label:`` or knitr header label).
+        source: new cell body. Leading ``#|`` lines in ``source`` are treated as
+            option overrides (merged when ``keep_options`` is True).
+        keep_options: if True (default), preserve existing ``#|`` options (and
+            knitr header options when the cell has no hash-pipes yet) unless
+            overwritten by ``source``. If False, replace the cell interior with
+            ``source``, ensuring a ``#| label:`` line is present.
+
+    Raises:
+        CellLookupError: label missing or duplicated, or fence unclosed.
+
+    The opening fence line and the rest of the document are left untouched, so
+    this is a targeted edit rather than a full qmd↔cells roundtrip.
+    """
+    fences = [f for f in _iter_qmd_fences(qmd_text) if f["label"] == label]
+    if not fences:
+        raise CellLookupError(f"No code cell with label {label!r}")
+    if len(fences) > 1:
+        raise CellLookupError(
+            f"Duplicate label {label!r}: found in {len(fences)} code cells"
+        )
+    cell = fences[0]
+    if cell["close_idx"] is None:
+        raise CellLookupError(f"Unclosed code fence for label {label!r}")
+
+    old_opts, _old_body = _split_options_and_body(cell["source"])
+    new_opts_from_source, new_body = _split_options_and_body(source)
+    had_hashpipes = any(ln.startswith("#|") for ln in cell["body_lines"])
+
+    if keep_options:
+        if had_hashpipes or new_opts_from_source:
+            if had_hashpipes:
+                base = list(old_opts)
+            else:
+                # Promote knitr header label/opts into hash-pipes in the body.
+                base = []
+                if cell["header_label"]:
+                    base.append(("label", cell["header_label"]))
+                for k, v in cell["header_opts"]:
+                    base.append((k.replace(".", "-"), _r_value_to_yaml(v)))
+            final_opts = _merge_options(base, new_opts_from_source, label)
+            new_cell_src = _render_options_and_body(final_opts, new_body)
+        else:
+            # Pure knitr-style cell: keep the fence header, replace body only.
+            new_cell_src = new_body
+    else:
+        if new_opts_from_source:
+            final_opts = _merge_options([], new_opts_from_source, label)
+            new_cell_src = _render_options_and_body(final_opts, new_body)
+        elif new_body:
+            new_cell_src = f"#| label: {label}\n{new_body}"
+        else:
+            new_cell_src = f"#| label: {label}"
+
+    new_body_lines = new_cell_src.split("\n") if new_cell_src else []
+    lines = qmd_text.split("\n")
+    out = (
+        lines[: cell["open_idx"] + 1]
+        + new_body_lines
+        + lines[cell["close_idx"] :]
+    )
+    return "\n".join(out)
