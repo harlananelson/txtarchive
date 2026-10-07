@@ -125,34 +125,57 @@ def _remove_stale_parts(output_dir, file_name, file_ext, outputs):
 
 def _split_on_boundaries(content, separator, file_name, file_ext, max_tokens,
                          output_dir, update_only=False):
-    """Split archive content at file section boundaries. Returns chunk paths."""
+    """Split archive content at file section boundaries. Returns chunk paths.
+
+    The archive header (identity, patch instructions, source manifest, table of
+    contents) is repeated at the top of every part. A later part also points
+    back at part 1, so a single uploaded chunk still maps numbered names to
+    checkout paths.
+    """
     parts = content.split(separator)
     header = parts[0]  # Archive header (before first file section)
+    if header and not header.endswith("\n"):
+        header += "\n"
     sections = parts[1:]  # Individual file sections
 
-    current_chunk = header
-    part_num = 1
-    outputs = []
+    chunks = []  # each item is a list of (separator + section) strings
+    current = []
+    current_tokens = len(header.split())
 
     for section in sections:
         section_with_sep = separator + section
         section_tokens = len(section_with_sep.split())
-        current_tokens = len(current_chunk.split())
+        if current and current_tokens + section_tokens > max_tokens:
+            chunks.append(current)
+            current = []
+            current_tokens = len(header.split())
+        current.append(section_with_sep)
+        current_tokens += section_tokens
 
-        if current_tokens + section_tokens > max_tokens and current_chunk.strip():
-            outputs.append(_emit(
-                os.path.join(output_dir, f"{file_name}_part{part_num}{file_ext}"),
-                current_chunk, update_only))
-            current_chunk = ""  # Start new chunk without duplicating header
-            part_num += 1
+    if current:
+        chunks.append(current)
 
-        current_chunk += section_with_sep
-
-    # Write final chunk
-    if current_chunk.strip():
-        outputs.append(_emit(
-            os.path.join(output_dir, f"{file_name}_part{part_num}{file_ext}"),
-            current_chunk, update_only))
+    outputs = []
+    total = len(chunks)
+    for index, chunk_sections in enumerate(chunks, 1):
+        if total > 1 and index == 1:
+            note = (
+                f"# Part {index} of {total}\n"
+                "# SOURCE MANIFEST below indexes every file in the archive.\n"
+            )
+        elif total > 1:
+            note = (
+                f"# Part {index} of {total}\n"
+                "# SOURCE MANIFEST for the whole archive is included below "
+                "(same index as part 1).\n"
+            )
+        else:
+            note = ""
+        body = note + header + "".join(chunk_sections)
+        # This function only runs when the archive exceeds max_tokens, so the
+        # chunk is always a part file (including a single oversized section).
+        name = f"{file_name}_part{index}{file_ext}"
+        outputs.append(_emit(os.path.join(output_dir, name), body, update_only))
     return outputs
 
 

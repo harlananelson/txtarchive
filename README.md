@@ -57,41 +57,72 @@ python -m txtarchive extract-notebooks archive.txt restored_project/
 
 **Standard Format Example:**
 ```
-# Archive created on: 2025-10-08 14:49:03
+# Archive created on: 2026-10-06 12:00:00
 # Standard Archive Format
+# repo: demo
+# commit: a1b2c3d
+# branch: main
+
+# SOURCE MANIFEST
+# path is the repository-relative checkout path (POSIX) for git apply.
+# numbered-name | path | lines
+# 1-status-validity.txt | docs/status-validity.qmd | 2
+# 2-helper.txt | src/helper.py | 1
+
 # TABLE OF CONTENTS
-1. test.txt
+1. docs/status-validity.qmd
+2. src/helper.py
+
 ---
-Filename: test.txt
+Filename: docs/status-validity.qmd
+path: docs/status-validity.qmd
+alias: docs/status-validity.qmd
+numbered: 1-status-validity.txt
+lines: 2
 ---
-content here
----
-Filename: another.py
----
-more content
+title: example
+value: 1
 ```
 
 **LLM-Friendly Format Example:**
 ```
-# Archive created on: 2025-10-08 14:50:32
+# Archive created on: 2026-10-06 12:00:00
 # LLM-FRIENDLY CODE ARCHIVE
-# Generated from: /path/to/project
-# Date: 2025-10-08 14:50:32
+# Generated from: demo
+# Date: 2026-10-06 12:00:00
+# repo: demo
+# commit: a1b2c3d
+# branch: main
+
+# PATCH INSTRUCTIONS
+# When proposing changes, output a unified diff using the exact `path:` values as a/ and b/ paths, with enough unchanged context lines; do not invent paths.
+
+# SOURCE MANIFEST
+# path is the repository-relative checkout path (POSIX) for git apply.
+# numbered-name | path | lines
+# 1-status-validity.txt | docs/status-validity.qmd | 2
+
 # TABLE OF CONTENTS
-1. test.txt
-2. another.py
+1. docs/status-validity.qmd
 
 ################################################################################
-# FILE 1: test.txt
+# FILE 1: docs/status-validity.qmd
+# path: docs/status-validity.qmd
+# alias: docs/status-validity.qmd
+# numbered: 1-status-validity.txt
+# lines: 2
 ################################################################################
 
-content here
+title: example
+value: 1
+```
 
-################################################################################
-# FILE 2: another.py
-################################################################################
+`path:` is the checkout path for a unified diff (`--- a/<path>` / `+++ b/<path>`). Inside a git work tree it is relative to `git rev-parse --show-toplevel` and keeps the original suffix (`.qmd`, `.R`, `.py`). Outside a work tree it is relative to the archive root. `Filename:` / `# FILE N:` stays the archive-relative name that `unpack` restores. The archive records the repo directory name, short commit, and branch. It does not record an absolute path.
 
-more content
+Flattened knowledge files (see `--knowledge`) start with:
+
+```
+# source: docs/status-validity.qmd (repo demo @ a1b2c3d)
 ```
 
 ### Why Two Formats?
@@ -189,6 +220,10 @@ python -m txtarchive archive <directory> <output_file> [options]
 - `--exclude-dirs .venv __pycache__ .git` - Directories to skip
 - `--root-files setup.py README.md` - Specific root files to always include
 - `--include-subdirs src tests` - Only include these subdirectories
+- `--no-patch-instructions` - Omit the LLM-friendly patch-instruction block (included by default)
+- `--line-numbers` - Prefix each LLM-friendly content line with its line number (`unpack` strips them)
+- `--knowledge` - Also write numbered flattened files in `<output_stem>_knowledge/`
+- `--knowledge-dir DIR` - Where those knowledge files go (implies `--knowledge`)
 
 **Examples:**
 
@@ -311,7 +346,35 @@ python -m txtarchive archive src/ review.txt \
 # If LLM generates modified code, use extract-notebooks if applicable
 ```
 
-### Workflow 3: Ask Sage Integration
+### Workflow 3: Ask an LLM for a git patch
+
+Pack from the git root (or any subdirectory; `path:` is still relative to the repository root). This regenerates a Copilot-ready archive, split parts, and flattened knowledge files:
+
+```bash
+python -m txtarchive archive PATH/TO/REPO archive/repo_llm.txt \
+    --llm-friendly \
+    --knowledge \
+    --split-output \
+    --max-tokens 75000 \
+    --file_types .py .qmd .R .r .ipynb .md .yaml
+```
+
+Upload `archive/repo_llm.txt`, the files in `archive/split_repo_llm/`, or `archive/repo_llm_knowledge/`. Each split part repeats the source manifest. Each knowledge file starts with `# source: <path> (repo <name> @ <sha>)`.
+
+Ask Copilot (or another model) something like:
+
+> Propose the change as a unified diff. Use the exact `path:` values from the archive as the `a/` and `b/` paths. Include enough unchanged context lines for the hunks to match. Do not invent paths.
+
+Save the reply as `patch.diff` and check it against the same commit the archive recorded (`# commit:` / `# branch:`), then apply:
+
+```bash
+git apply --check patch.diff
+git apply --3way patch.diff
+```
+
+`--line-numbers` adds `   1|` prefixes in LLM-friendly file bodies to make hunks easier to place. Those prefixes are not part of the file; the instruction block says not to copy them into the diff, and `unpack` strips them. `--no-patch-instructions` drops the short instruction block at the top of LLM-friendly archives. Leave off `--extract-code-only` when the hunks need to match the files in git (that flag rewrites notebooks and Quarto into cell markers). Dotfiles such as `.env` are left out of the archive. Paths in the archive are relative; an absolute home directory is never written.
+
+### Workflow 4: Ask Sage Integration
 
 **Use archive-and-ingest (Automatic LLM Format):**
 ```bash
@@ -441,6 +504,12 @@ See issues for feature requests and bugs. Pull requests welcome!
 MIT License
 
 ## Changelog
+
+### Unreleased
+- Every archive records a repo-relative `path:` (git root when inside a work tree), a source manifest (`numbered-name | path | lines`), and `repo` / short `commit` / `branch`
+- LLM-friendly archives include a patch-instruction block (`--no-patch-instructions` to omit) and optional `--line-numbers`
+- `--knowledge` writes flattened `<n>-<stem>.txt` files whose first line is `# source: <path> (repo <name> @ <sha>)`
+- Split parts each carry the full manifest. Old archives without these fields still unpack
 
 ### v0.2.0
 - Auto-detection of archive format in `unpack` command

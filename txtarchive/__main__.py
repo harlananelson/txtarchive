@@ -78,6 +78,10 @@ def archive_and_ingest(
     endpoint="train",           # Add this parameter
     test_endpoints=False,        # Add this parameter
     explicit_files=None,  # ← ADD THIS LINE
+    patch_instructions=None,
+    line_numbers=False,
+    knowledge=False,
+    knowledge_dir=None,
 ):
     """
     Archive files and then ingest them into Ask Sage.
@@ -205,7 +209,11 @@ def archive_and_ingest(
             exclude_dirs=exclude_dirs,
             root_files=root_files,
             include_subdirs=include_subdirs,
-            explicit_files=explicit_files,  
+            explicit_files=explicit_files,
+            patch_instructions=patch_instructions,
+            line_numbers=line_numbers,
+            knowledge=knowledge,
+            knowledge_dir=knowledge_dir,
         )
         
         # Ingest the main archive ONLY if not splitting
@@ -341,6 +349,34 @@ def add_common_archive_args(parser):
              'its content actually changed (the archive date line is ignored in the '
              'comparison), and delete stale part files. Unchanged outputs keep their '
              'mtime, so a daily re-run touches only what changed.'
+    )
+    parser.add_argument(
+        '--no-patch-instructions',
+        action='store_true',
+        help='Omit the patch-instruction block from LLM-friendly archives. '
+             'By default that block tells the model to emit a unified diff using '
+             'the exact path: values.'
+    )
+    parser.add_argument(
+        '--line-numbers',
+        action='store_true',
+        help='In LLM-friendly archives, prefix each content line with its line '
+             'number so a model can build diff hunks. Unpack strips the prefixes.'
+    )
+    parser.add_argument(
+        '--knowledge',
+        action='store_true',
+        help='Also write numbered, flattened knowledge files '
+             '(<n>-<stem>.txt) whose first line is '
+             '`# source: <repo-relative path> (repo <name> @ <sha>)`.'
+    )
+    parser.add_argument(
+        '--knowledge-dir',
+        type=str,
+        default=None,
+        help='Directory for --knowledge files '
+             '(default: <output_stem>_knowledge/ next to the archive). '
+             'Setting this turns knowledge output on.'
     )
 
 def _describe_parser(parser, name=None):
@@ -819,6 +855,10 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             explicit_files=getattr(args, 'explicit_files', None),
             dry_run=getattr(args, 'dry_run', False),
             update_only=getattr(args, 'update', False),
+            patch_instructions=not getattr(args, 'no_patch_instructions', False),
+            line_numbers=getattr(args, 'line_numbers', False),
+            knowledge=getattr(args, 'knowledge', False),
+            knowledge_dir=getattr(args, 'knowledge_dir', None),
         )
 
     def handle_archive_and_ingest(args):
@@ -841,6 +881,10 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             endpoint=getattr(args, 'endpoint', 'train'),
             test_endpoints=getattr(args, 'test_endpoints', False),
             explicit_files=getattr(args, 'explicit_files', None),
+            patch_instructions=not getattr(args, 'no_patch_instructions', False),
+            line_numbers=getattr(args, 'line_numbers', False),
+            knowledge=getattr(args, 'knowledge', False),
+            knowledge_dir=getattr(args, 'knowledge_dir', None),
         )
 
     def handle_unpack(args):
