@@ -88,6 +88,8 @@ def archive_and_ingest(
     index_terse=False,
     per_file=False,
     per_file_dir=None,
+    phi_block=False,
+    phi_log=None,
 ):
     """
     Archive files and then ingest them into Ask Sage.
@@ -178,11 +180,18 @@ def archive_and_ingest(
         
         success_count = 0
         total_files = 0
+        phi_skips = []
+        git = None
+        if phi_block:
+            from .source_paths import git_context
+            git = git_context(directory)
         
         for path in directory.rglob("*") if include_subdirectories else directory.glob("*"):
             if path.is_file() and path.suffix in file_types:
                 if not path.name.startswith((".", "#")):
                     total_files += 1
+                    if phi_block and _directory_ingest_blocked(path, directory, git, phi_skips):
+                        continue
                     try:
                         logger.info(f"Ingesting {path} via {endpoint} endpoint")
                         # Here you'd need to modify ingest_document to accept endpoint parameter
@@ -193,6 +202,10 @@ def archive_and_ingest(
                             
                     except Exception as e:
                         logger.error(f"Exception occurred while ingesting {path}: {e}")
+
+        if phi_block:
+            from txtarchive.packunpack import _write_phi_skip_log
+            _write_phi_skip_log(output_file_path, phi_log, phi_skips)
         
         logger.info(f"Directory ingestion complete: {success_count}/{total_files} files successfully ingested")
         return
@@ -226,6 +239,8 @@ def archive_and_ingest(
             index_terse=index_terse,
             per_file=per_file,
             per_file_dir=per_file_dir,
+            phi_block=phi_block,
+            phi_log=phi_log,
         )
         
         # Ingest the main archive ONLY if not splitting
@@ -300,6 +315,33 @@ def archive_and_ingest(
         logger.info(f"Archive ingestion complete via '{endpoint}' endpoint")
 
  
+def _directory_ingest_blocked(path, directory, git, phi_skips):
+    """Skip one direct-ingest file when PHI blocking is on. Read-only."""
+    from .phi_block import scan_for_phi, skip_line
+    from .source_paths import repo_relative_posix
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        logger.error(f"Error reading {path} for PHI block: {exc}")
+        return False
+    category = scan_for_phi(text)
+    if not category:
+        return False
+    source = repo_relative_posix(path, directory, git)
+    phi_skips.append((source, category))
+    logger.warning("PHI block: %s", skip_line(source, category))
+    return True
+
+
+def _phi_block_kwargs(args):
+    """Map PHI flags. Blocking stays off unless ``--phi-block`` is passed."""
+    return {
+        "phi_block": bool(getattr(args, "phi_block", False)),
+        "phi_log": getattr(args, "phi_log", None),
+    }
+
+
 def _copilot_archive_kwargs(args):
     """Map Copilot CLI flags onto archive_files keyword arguments.
 
@@ -481,6 +523,25 @@ def add_common_archive_args(parser):
         type=str,
         default=None,
         help='Directory for --per-file exports. Setting this turns per-file output on.'
+    )
+    parser.add_argument(
+        '--phi-block',
+        action='store_true',
+        help='Opt-in PHI blocking. The default is pass-through: the scanner is '
+             'not run. With this flag, a file that matches a PHI rule is skipped '
+             'entirely (archive, split parts, stamps, Copilot index, per-file, '
+             'knowledge). The source file is not modified. Each skip is logged '
+             'with the repo-relative path and the rule category. Provenance '
+             'flags stay independent of this one.'
+    )
+    parser.add_argument(
+        '--phi-log',
+        type=str,
+        default=None,
+        help='Skip log for --phi-block '
+             '(default: <output_stem>_phi_skipped.log next to the archive). '
+             'Ignored unless --phi-block is set. The log records the path and '
+             'rule category, not the matched text.'
     )
 
 def _describe_parser(parser, name=None):
@@ -964,6 +1025,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             knowledge=getattr(args, 'knowledge', False),
             knowledge_dir=getattr(args, 'knowledge_dir', None),
             **_copilot_archive_kwargs(args),
+            **_phi_block_kwargs(args),
         )
 
     def handle_archive_and_ingest(args):
@@ -991,6 +1053,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             knowledge=getattr(args, 'knowledge', False),
             knowledge_dir=getattr(args, 'knowledge_dir', None),
             **_copilot_archive_kwargs(args),
+            **_phi_block_kwargs(args),
         )
 
     def handle_unpack(args):

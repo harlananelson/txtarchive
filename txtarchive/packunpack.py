@@ -1059,6 +1059,8 @@ def archive_files(
     index_terse=False,
     per_file=False,
     per_file_dir=None,
+    phi_block=False,
+    phi_log=None,
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
@@ -1068,6 +1070,16 @@ def archive_files(
     include_subdirs = set(include_subdirs or [])
     processed_files = set()
     file_list = []
+    phi_skips = []
+    # Provenance outputs follow their own flags. PHI blocking only drops
+    # matching files from this list; it does not turn stamps, the index, or
+    # per-file export on or off.
+    phi_block = bool(phi_block)
+    if phi_log and not phi_block:
+        logger.warning(
+            "PHI blocking is off (pass-through); --phi-log is ignored and the scanner is not run"
+        )
+        phi_log = None
 
     logger.info(f"Archiving files from: {directory}")
     logger.info(f"Excluding directories: {exclude_dirs}")
@@ -1113,9 +1125,20 @@ def archive_files(
 
     def _push(rel_path, content, file_path):
         alias = archive_alias(rel_path)
+        source = repo_relative_posix(file_path, directory, git)
+        if phi_block:
+            # Scanner import and call stay inside this branch so a default
+            # pass-through archive never loads txtarchive.phi_block.
+            category = _phi_category(content)
+            if category:
+                from .phi_block import skip_line
+                phi_skips.append((source, category))
+                processed_files.add(alias)
+                logger.warning("PHI block: %s", skip_line(source, category))
+                return
         file_list.append(ArchiveEntry(
             alias=alias,
-            source=repo_relative_posix(file_path, directory, git),
+            source=source,
             content=content,
         ))
         processed_files.add(alias)
@@ -1256,6 +1279,12 @@ def archive_files(
             print(f"Copilot index:    {index_path} ({'terse' if index_terse else 'full'})")
         if per_file:
             print(f"Per-file dir:     {_per_file_directory(output_file_path, per_file_dir)}")
+        if phi_block:
+            print(f"PHI blocking:     on ({len(phi_skips)} skipped)")
+            for source, category in phi_skips:
+                print(f"  skipped {source} ({category})")
+        else:
+            print("PHI blocking:     pass-through")
         print(f"\nFiles that would be included:")
         for idx, entry in enumerate(file_list, 1):
             size_kb = len(entry.content) / 1024
@@ -1366,7 +1395,33 @@ def archive_files(
             update_only=update_only,
         )
 
+    if phi_block:
+        _write_phi_skip_log(
+            output_file_path, phi_log, phi_skips, update_only=update_only,
+        )
+
     return output_file_path
+
+
+def _phi_category(content):
+    """Classify one file. Only called when ``phi_block`` is enabled."""
+    from .phi_block import scan_for_phi
+    return scan_for_phi(content)
+
+
+def _write_phi_skip_log(output_file_path, phi_log, skips, update_only=False):
+    """Write the skip log. Lines are path and rule category, never file text."""
+    from .phi_block import default_log_path, render_skip_log
+    from .split_files import _write_if_changed
+
+    path = Path(phi_log) if phi_log else default_log_path(output_file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = render_skip_log(skips)
+    if update_only:
+        _write_if_changed(path, text)
+    else:
+        path.write_text(text, encoding="utf-8")
+    logger.info("PHI block log written at: %s (%d skipped)", path, len(skips))
 
 
 def _copilot_index_path(output_file_path):

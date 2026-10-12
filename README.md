@@ -133,7 +133,17 @@ SOURCE FILE: docs/status-validity.qmd (part 2)
 
 `part` is the split-part number (`1` when the archive is not split). The line is repeated about every 2000 characters, on line boundaries, so a retrieved chunk still carries the path. `unpack`, `extract-notebooks`, and `extract-notebooks-and-quarto` drop these lines. A line in the source that is itself `SOURCE FILE: ... (part N)` would be dropped too.
 
-`--copilot-index` writes a sidecar small enough to paste into an agent's instructions. It warns above about 8000 characters; `--index-terse` drops the descriptions. `--per-file` writes one uploadable file per source document instead of bundled parts. None of these change the archive unless you pass the flag. The tool does not scan or redact file contents.
+`--copilot-index` writes a sidecar small enough to paste into an agent's instructions. It warns above about 8000 characters; `--index-terse` drops the descriptions. `--per-file` writes one uploadable file per source document instead of bundled parts. None of these change the archive unless you pass the flag.
+
+`--source-stamps`, `--copilot-index`, and `--per-file` stay in the normal archive flow. They do not require `--phi-block`, and `--phi-block` does not turn them off. With blocking on, a skipped file is absent from those outputs; every file that is kept is still stamped, indexed, and exported.
+
+### PHI blocking
+
+Default mode is **pass-through**. txtarchive copies files into the archive and does not run the PHI scanner.
+
+`--phi-block` turns on optional blocking. A file that matches a rule (`ssn`, `mrn`, `dob`, `patient-id`) is skipped as a whole. It is left out of the archive, split parts, stamped text, the Copilot index, per-file exports, and knowledge files. The source file is not written, renamed, or otherwise changed. There is no redaction mode.
+
+Each skip is one log line, `skipped | <repo-relative path> | <rule category>`. The log does not include the matched text or nearby lines. The default log is `<output_stem>_phi_skipped.log` next to the archive. `--phi-log PATH` moves that file. `--phi-log` is ignored when `--phi-block` is off, and the scanner still does not run. The same line is also written to the txtarchive logger.
 
 ### Why Two Formats?
 
@@ -240,6 +250,8 @@ python -m txtarchive archive <directory> <output_file> [options]
 - `--index-terse` - Same index without descriptions (implies `--copilot-index`)
 - `--per-file` - Also write one file per source document, path flattened (`docs/a.qmd` → `docs__a.qmd`), for upload instead of bundled parts
 - `--per-file-dir DIR` - Where those files go (implies `--per-file`)
+- `--phi-block` - Optional PHI blocking. Default is pass-through (the scanner is not run). A match is skipped entirely and logged by repo-relative path and rule category. Does not turn provenance flags off
+- `--phi-log PATH` - Skip log for `--phi-block` (default: `<output_stem>_phi_skipped.log` next to the archive). Ignored unless `--phi-block` is set
 
 **Examples:**
 
@@ -541,7 +553,8 @@ MIT License
 - LLM-friendly archives include a patch-instruction block (`--no-patch-instructions` to omit) and optional `--line-numbers`
 - `--knowledge` writes flattened `<n>-<stem>.txt` files whose first line is `# source: <path> (repo <name> @ <sha>)`
 - Split parts each carry the full manifest. Old archives without these fields still unpack
-- Optional Copilot retrieval aids, all off by default: `--source-stamps` / `--stamp-interval` (provenance lines inside LLM-friendly sections; unpack ignores them), `--copilot-index` / `--index-terse` (`<stem>_index.md`, warns over about 8000 characters), and `--per-file` / `--per-file-dir` (one flattened file per source document)
+- Optional Copilot retrieval aids, all off by default: `--source-stamps` / `--stamp-interval` (provenance lines inside LLM-friendly sections; unpack ignores them), `--copilot-index` / `--index-terse` (`<stem>_index.md`, warns over about 8000 characters), and `--per-file` / `--per-file-dir` (one flattened file per source document). These stay on their own flags and are not tied to PHI blocking
+- Optional `--phi-block` (default pass-through; the scanner is not run). A matching file is skipped from every output and logged at `<stem>_phi_skipped.log` as path plus rule category. The source file is left unchanged. No redaction mode
 
 ### v0.2.0
 - Auto-detection of archive format in `unpack` command
