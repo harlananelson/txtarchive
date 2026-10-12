@@ -1,11 +1,11 @@
 # txtarchive/__main__.py
 import argparse
 import logging
-from importlib.metadata import version
 from txtarchive.packunpack import archive_files, run_unpack, archive_subdirectories, run_extract_notebooks, run_extract_notebooks_and_quarto
 import os
 import json as json_module
 from .header import logger
+from ._version import __version__
 
 
 def ingest_document(*args, **kwargs):
@@ -18,12 +18,6 @@ def ingest_document(*args, **kwargs):
     from txtarchive.ask_sage import ingest_document as _ingest
     return _ingest(*args, **kwargs)
 
-
-try:
-    __version__ = version("txtarchive")
-except Exception:
-    # Running from a source checkout on PYTHONPATH (not pip-installed)
-    __version__ = "0.0.0+checkout"
 
 def handle_ingestion_response(response_data, file_path):
     """

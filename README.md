@@ -158,6 +158,8 @@ Each skip is one log line, `skipped | <repo-relative path> | <rule category>`. T
 
 ## Installation
 
+Install from a checkout for development, or pin a GitHub tag in another project. Versioning, `pip` / `pyproject.toml` Git dependencies, and Nix pins are in [docs/PACKAGING.md](docs/PACKAGING.md).
+
 ```bash
 git clone https://github.com/harlananelson/txtarchive.git
 cd txtarchive
@@ -555,6 +557,7 @@ MIT License
 - Split parts each carry the full manifest. Old archives without these fields still unpack
 - Optional Copilot retrieval aids, all off by default: `--source-stamps` / `--stamp-interval` (provenance lines inside LLM-friendly sections; unpack ignores them), `--copilot-index` / `--index-terse` (`<stem>_index.md`, warns over about 8000 characters), and `--per-file` / `--per-file-dir` (one flattened file per source document). These stay on their own flags and are not tied to PHI blocking
 - Optional `--phi-block` (default pass-through; the scanner is not run). A matching file is skipped from every output and logged at `<stem>_phi_skipped.log` as path plus rule category. The source file is left unchanged. No redaction mode
+- Packaging: single version in `txtarchive/_version.py` (0.2.0), read by `pyproject.toml`. See [docs/PACKAGING.md](docs/PACKAGING.md)
 
 ### v0.2.0
 - Auto-detection of archive format in `unpack` command
