@@ -4,18 +4,24 @@ from pathlib import Path
 from .header import logger
 from datetime import datetime
 from .source_paths import (
+    DEFAULT_STAMP_INTERVAL,
+    INDEX_INSTRUCTION_LIMIT,
     ArchiveEntry,
     archive_alias,
     format_knowledge_manifest,
     git_context,
+    insert_source_stamps,
     iter_llm_sections,
     iter_standard_sections,
     knowledge_file_text,
     number_entries,
     parse_knowledge_text,
     render_archive,
+    render_copilot_index,
     repo_relative_posix,
     safe_child,
+    stamp_llm_archive,
+    unique_flattened_name,
 )
 
 def read_notebook(notebook_path):
@@ -1047,6 +1053,12 @@ def archive_files(
     line_numbers=False,
     knowledge=False,
     knowledge_dir=None,
+    source_stamps=False,
+    stamp_interval=DEFAULT_STAMP_INTERVAL,
+    copilot_index=False,
+    index_terse=False,
+    per_file=False,
+    per_file_dir=None,
 ):
     directory = Path(directory) if isinstance(directory, str) else directory
     output_file_path = Path(output_file_path) if isinstance(output_file_path, str) else output_file_path
@@ -1071,6 +1083,29 @@ def archive_files(
     use_line_numbers = bool(line_numbers) and bool(llm_friendly)
     if line_numbers and not llm_friendly:
         logger.warning("line numbers apply to LLM-friendly archives only; ignoring")
+    if per_file_dir:
+        per_file = True
+    if index_terse:
+        copilot_index = True
+    try:
+        stamp_interval = int(stamp_interval)
+    except (TypeError, ValueError):
+        stamp_interval = 0
+    if stamp_interval < 1:
+        logger.warning(
+            "stamp interval must be a positive character count; using %s",
+            DEFAULT_STAMP_INTERVAL,
+        )
+        stamp_interval = DEFAULT_STAMP_INTERVAL
+    # Stamps inside a standard archive would sit in the reconstructed file.
+    # Side outputs (per-file, knowledge) can still carry them: unpack strips
+    # those lines. The bundled standard text stays as it is today.
+    stamp_archive = bool(source_stamps) and bool(llm_friendly)
+    if source_stamps and not llm_friendly:
+        logger.warning(
+            "source stamps are written into LLM-friendly archives only; "
+            "the standard archive text is unchanged"
+        )
     if patch_instructions is None:
         use_patch_instructions = bool(llm_friendly)
     else:
@@ -1212,6 +1247,15 @@ def archive_files(
         print(f"Estimated tokens: {estimated_tokens:,}")
         if split_output:
             print(f"Split output:     yes (max {max_tokens:,} tokens/file)")
+        if stamp_archive:
+            print(f"Source stamps:    every {stamp_interval:,} characters")
+        elif source_stamps:
+            print("Source stamps:    side outputs only (standard archive is not stamped)")
+        if copilot_index:
+            index_path = _copilot_index_path(output_file_path)
+            print(f"Copilot index:    {index_path} ({'terse' if index_terse else 'full'})")
+        if per_file:
+            print(f"Per-file dir:     {_per_file_directory(output_file_path, per_file_dir)}")
         print(f"\nFiles that would be included:")
         for idx, entry in enumerate(file_list, 1):
             size_kb = len(entry.content) / 1024
@@ -1234,6 +1278,29 @@ def archive_files(
         include_patch_instructions=use_patch_instructions,
         line_numbers=use_line_numbers,
     )
+
+    part_numbers = [1] * len(file_list)
+    if file_list and (stamp_archive or copilot_index or source_stamps):
+        from .split_files import section_part_numbers
+        planned = section_part_numbers(
+            all_contents,
+            max_tokens if split_output else None,
+            llm_friendly=bool(llm_friendly),
+        )
+        if len(planned) == len(file_list):
+            part_numbers = planned
+        elif planned:
+            logger.warning(
+                "Part plan has %d sections for %d files; numbering every section as part 1",
+                len(planned),
+                len(file_list),
+            )
+
+    if stamp_archive:
+        stamped_archive = stamp_llm_archive(all_contents, part_numbers, stamp_interval)
+        if stamped_archive == all_contents and file_list:
+            logger.warning("Source stamps were requested but no LLM sections were stamped")
+        all_contents = stamped_archive
 
     if update_only:
         from .split_files import _write_if_changed
@@ -1259,18 +1326,186 @@ def archive_files(
         dest = Path(knowledge_dir) if knowledge_dir else (
             output_file_path.parent / f"{output_file_path.stem}_knowledge"
         )
-        _write_knowledge_pack(file_list, dest, git, update_only=update_only)
+        _write_knowledge_pack(
+            file_list,
+            dest,
+            git,
+            update_only=update_only,
+            part_numbers=part_numbers if source_stamps else None,
+            stamp_interval=stamp_interval if source_stamps else None,
+        )
         logger.info(f"Knowledge files written in: {dest}")
+
+    per_file_names = None
+    if per_file:
+        per_dest = _per_file_directory(output_file_path, per_file_dir)
+        per_file_names = _write_per_file_pack(
+            file_list,
+            per_dest,
+            git,
+            update_only=update_only,
+            part_numbers=part_numbers if source_stamps else None,
+            stamp_interval=stamp_interval if source_stamps else None,
+        )
+        logger.info(f"Per-file exports written in: {per_dest}")
+
+    if copilot_index:
+        index_path = _copilot_index_path(output_file_path)
+        _write_copilot_index(
+            index_path,
+            file_list,
+            part_numbers,
+            git,
+            terse=bool(index_terse),
+            stamped=bool(stamp_archive),
+            side_stamped=bool(source_stamps) and not stamp_archive and bool(
+                per_file or knowledge or knowledge_dir
+            ),
+            stamp_interval=stamp_interval,
+            per_file=per_file_names,
+            update_only=update_only,
+        )
 
     return output_file_path
 
 
-def _write_knowledge_pack(entries, dest, git, update_only=False):
+def _copilot_index_path(output_file_path):
+    """``archive/repo_llm.txt`` -> ``archive/repo_llm_index.md``."""
+    output_file_path = Path(output_file_path)
+    return output_file_path.with_name(f"{output_file_path.stem}_index.md")
+
+
+def _per_file_directory(output_file_path, per_file_dir):
+    if per_file_dir:
+        return Path(per_file_dir)
+    output_file_path = Path(output_file_path)
+    return output_file_path.parent / f"{output_file_path.stem}_files"
+
+
+def _write_copilot_index(
+    path,
+    entries,
+    part_numbers,
+    git,
+    *,
+    terse,
+    stamped,
+    side_stamped,
+    stamp_interval,
+    per_file,
+    update_only,
+):
+    """Write the pasteable part/section index. Warn when it exceeds ~8000 characters."""
+    from .split_files import _write_if_changed
+
+    text = render_copilot_index(
+        entries,
+        part_numbers,
+        git,
+        terse=terse,
+        stamped=stamped,
+        side_stamped=side_stamped,
+        stamp_interval=stamp_interval,
+        per_file=per_file,
+    )
+    if len(text) > INDEX_INSTRUCTION_LIMIT:
+        if terse:
+            logger.warning(
+                "Copilot index %s is %d characters, over the %d-character "
+                "instruction budget, even in terse mode.",
+                path,
+                len(text),
+                INDEX_INSTRUCTION_LIMIT,
+            )
+        else:
+            logger.warning(
+                "Copilot index %s is %d characters, over the %d-character "
+                "instruction budget. Re-run with --index-terse.",
+                path,
+                len(text),
+                INDEX_INSTRUCTION_LIMIT,
+            )
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if update_only:
+        _write_if_changed(path, text)
+    else:
+        path.write_text(text, encoding="utf-8")
+    logger.info(f"Copilot index written at: {path} ({len(text)} characters)")
+    return text
+
+
+def _write_per_file_pack(
+    entries,
+    dest,
+    git,
+    update_only=False,
+    part_numbers=None,
+    stamp_interval=None,
+):
+    """Write one file per source document, named with a flattened repo path.
+
+    This is the Copilot alternative to bundled split parts. Each file uses the
+    knowledge ``# source:`` header so unpack restores the checkout path, and
+    drops provenance stamps on the way back. The directory is treated as owned
+    by this export: a previous file whose first line is ``# source:`` and that
+    this run did not rewrite is removed.
+    """
+    from .split_files import _write_if_changed
+
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    used = set()
+    expected = set()
+    written = []
+
+    def _emit(path, text):
+        if update_only:
+            _write_if_changed(path, text)
+        else:
+            path.write_text(text, encoding="utf-8")
+
+    for index, entry in enumerate(entries):
+        name = unique_flattened_name(entry.source, used)
+        content = entry.content
+        if stamp_interval:
+            part = 1
+            if part_numbers and index < len(part_numbers):
+                part = part_numbers[index]
+            content = insert_source_stamps(content, entry.source, part, stamp_interval)
+        exported = ArchiveEntry(
+            alias=entry.alias,
+            source=entry.source,
+            content=content,
+            numbered=entry.numbered,
+            line_count=entry.line_count,
+        )
+        _emit(dest / name, knowledge_file_text(exported, git))
+        expected.add(name)
+        written.append((name, entry))
+        logger.info(f"Wrote per-file export: {dest / name}")
+
+    for child in dest.iterdir():
+        if not child.is_file() or child.name in expected:
+            continue
+        try:
+            first = child.read_text(encoding="utf-8", errors="replace").splitlines()[:1]
+        except OSError:
+            continue
+        if first and first[0].startswith("# source:"):
+            child.unlink()
+            logger.info(f"Removed stale per-file export: {child}")
+    return written
+
+
+def _write_knowledge_pack(entries, dest, git, update_only=False, part_numbers=None, stamp_interval=None):
     """Write flattened numbered knowledge files plus MANIFEST.txt.
 
     Each file starts with ``# source: <repo-relative path> (repo <name> @ <sha>)``.
-    Stale numbered files from a previous pack of this directory are removed so a
-    re-run cannot leave a Copilot upload pointing at a deleted source.
+    When ``stamp_interval`` is set, the body also repeats ``SOURCE FILE:`` lines;
+    unpack strips them. Stale numbered files from a previous pack of this
+    directory are removed so a re-run cannot leave a Copilot upload pointing at
+    a deleted source.
     """
     from .split_files import _write_if_changed
 
@@ -1286,7 +1521,20 @@ def _write_knowledge_pack(entries, dest, git, update_only=False):
             path.write_text(text, encoding="utf-8")
 
     _emit(dest / "MANIFEST.txt", manifest)
-    for entry in entries:
+    for index, entry in enumerate(entries):
+        if stamp_interval:
+            part = 1
+            if part_numbers and index < len(part_numbers):
+                part = part_numbers[index]
+            entry = ArchiveEntry(
+                alias=entry.alias,
+                source=entry.source,
+                content=insert_source_stamps(
+                    entry.content, entry.source, part, stamp_interval
+                ),
+                numbered=entry.numbered,
+                line_count=entry.line_count,
+            )
         _emit(dest / entry.numbered, knowledge_file_text(entry, git))
         expected.add(entry.numbered)
 

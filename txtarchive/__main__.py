@@ -82,6 +82,12 @@ def archive_and_ingest(
     line_numbers=False,
     knowledge=False,
     knowledge_dir=None,
+    source_stamps=False,
+    stamp_interval=2000,
+    copilot_index=False,
+    index_terse=False,
+    per_file=False,
+    per_file_dir=None,
 ):
     """
     Archive files and then ingest them into Ask Sage.
@@ -214,6 +220,12 @@ def archive_and_ingest(
             line_numbers=line_numbers,
             knowledge=knowledge,
             knowledge_dir=knowledge_dir,
+            source_stamps=source_stamps,
+            stamp_interval=stamp_interval,
+            copilot_index=copilot_index,
+            index_terse=index_terse,
+            per_file=per_file,
+            per_file_dir=per_file_dir,
         )
         
         # Ingest the main archive ONLY if not splitting
@@ -250,6 +262,35 @@ def archive_and_ingest(
                         logger.error(f"Exception occurred while ingesting {split_file}: {e}")
                 
                 logger.info(f"Split file ingestion complete: {success_count}/{len(split_files)} files successfully ingested")
+
+        if copilot_index or index_terse:
+            index_path = output_file_path.with_name(f"{output_file_path.stem}_index.md")
+            if index_path.is_file():
+                try:
+                    logger.info(f"Ingesting copilot index via '{endpoint}' endpoint: {index_path}")
+                    response_data = ingest_document(str(index_path), endpoint=endpoint)
+                    handle_ingestion_response(response_data, str(index_path))
+                except Exception as e:
+                    logger.error(f"Exception occurred while ingesting {index_path}: {e}")
+
+        if per_file or per_file_dir:
+            per_dest = Path(per_file_dir) if per_file_dir else (
+                output_file_path.parent / f"{output_file_path.stem}_files"
+            )
+            if per_dest.is_dir():
+                per_files = sorted(p for p in per_dest.iterdir() if p.is_file())
+                per_ok = 0
+                for per_path in per_files:
+                    try:
+                        logger.info(f"Ingesting per-file export via '{endpoint}' endpoint: {per_path}")
+                        response_data = ingest_document(str(per_path), endpoint=endpoint)
+                        if handle_ingestion_response(response_data, str(per_path)):
+                            per_ok += 1
+                    except Exception as e:
+                        logger.error(f"Exception occurred while ingesting {per_path}: {e}")
+                logger.info(
+                    f"Per-file ingestion complete: {per_ok}/{len(per_files)} files successfully ingested"
+                )
         
         # Clean up archive if requested
         if remove_archive:
@@ -259,6 +300,24 @@ def archive_and_ingest(
         logger.info(f"Archive ingestion complete via '{endpoint}' endpoint")
 
  
+def _copilot_archive_kwargs(args):
+    """Map Copilot CLI flags onto archive_files keyword arguments.
+
+    ``--stamp-interval`` turns source stamps on. ``--index-terse`` and
+    ``--per-file-dir`` turn on the output they configure. With none of these
+    flags set, archive bytes stay as they are today.
+    """
+    interval = getattr(args, "stamp_interval", None)
+    return {
+        "source_stamps": bool(getattr(args, "source_stamps", False) or interval is not None),
+        "stamp_interval": 2000 if interval is None else interval,
+        "copilot_index": bool(getattr(args, "copilot_index", False)),
+        "index_terse": bool(getattr(args, "index_terse", False)),
+        "per_file": bool(getattr(args, "per_file", False)),
+        "per_file_dir": getattr(args, "per_file_dir", None),
+    }
+
+
 def add_common_archive_args(parser):
     """Add common archive arguments to a parser to reduce duplication."""
     parser.add_argument(
@@ -377,6 +436,51 @@ def add_common_archive_args(parser):
         help='Directory for --knowledge files '
              '(default: <output_stem>_knowledge/ next to the archive). '
              'Setting this turns knowledge output on.'
+    )
+    parser.add_argument(
+        '--source-stamps',
+        action='store_true',
+        help='In an LLM-friendly archive, stamp each file section with '
+             '`SOURCE FILE: <repo-relative path> (part N)` at the start and '
+             'again every --stamp-interval characters (default 2000), so a '
+             'retrieved Copilot chunk carries its origin. Unpack and '
+             'extract ignore these lines. Off by default.'
+    )
+    parser.add_argument(
+        '--stamp-interval',
+        type=int,
+        default=None,
+        help='Characters of original content between repeated SOURCE FILE '
+             'stamps (default: 2000). Passing this turns --source-stamps on.'
+    )
+    parser.add_argument(
+        '--copilot-index',
+        action='store_true',
+        help='Write <output_stem>_index.md mapping archive part and section '
+             'to the repo-relative path, with a one-line description. '
+             'Small enough to paste into a Copilot agent\'s instructions. '
+             'Warns when the file exceeds about 8000 characters.'
+    )
+    parser.add_argument(
+        '--index-terse',
+        action='store_true',
+        help='Write the copilot index without descriptions. '
+             'Implies --copilot-index. Use when the full index is over '
+             'about 8000 characters.'
+    )
+    parser.add_argument(
+        '--per-file',
+        action='store_true',
+        help='Also write one file per source document, named by flattening '
+             'the repo-relative path (docs/a.qmd -> docs__a.qmd), instead of '
+             'relying on large bundled parts. Default directory: '
+             '<output_stem>_files/ next to the archive.'
+    )
+    parser.add_argument(
+        '--per-file-dir',
+        type=str,
+        default=None,
+        help='Directory for --per-file exports. Setting this turns per-file output on.'
     )
 
 def _describe_parser(parser, name=None):
@@ -859,6 +963,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             line_numbers=getattr(args, 'line_numbers', False),
             knowledge=getattr(args, 'knowledge', False),
             knowledge_dir=getattr(args, 'knowledge_dir', None),
+            **_copilot_archive_kwargs(args),
         )
 
     def handle_archive_and_ingest(args):
@@ -885,6 +990,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             line_numbers=getattr(args, 'line_numbers', False),
             knowledge=getattr(args, 'knowledge', False),
             knowledge_dir=getattr(args, 'knowledge_dir', None),
+            **_copilot_archive_kwargs(args),
         )
 
     def handle_unpack(args):

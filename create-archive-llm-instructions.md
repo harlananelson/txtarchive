@@ -243,6 +243,21 @@ if __name__ == "__main__":
 | Second header | Exactly 80 `#` characters on one line |
 | Blank line | Required after second header before content |
 
+### Provenance lines (optional, ignored on unpack)
+
+Microsoft 365 Copilot retrieves chunks, not the archive header. txtarchive can repeat this line inside a file body (`--source-stamps`, off by default):
+
+```
+SOURCE FILE: path/to/file.py (part 1)
+```
+
+Rules for a parser:
+
+- The line is not file content. Drop any line matching `SOURCE FILE: <path> (part N)`.
+- The same text may also appear inline inside a very long line. Delete that substring and do not add a newline.
+- `part N` is the split-part number (`1` when the archive is a single file).
+- Do not emit these lines unless you are producing a Copilot upload. Archives without them remain valid.
+
 ### Cell Marker Rules (Notebooks)
 
 The parser looks for lines starting with `# Cell ` or `# Markdown Cell `.
@@ -429,6 +444,7 @@ The LLM-friendly parser expects `###############################################
 - [ ] Markdown cells marked with `# Markdown Cell N`
 - [ ] Markdown content wrapped in `"""` on separate lines
 - [ ] Cell numbers may have gaps (this is correct)
+- [ ] Lines matching `SOURCE FILE: <path> (part N)` are provenance, not content, and are ignored on unpack
 
 ---
 
