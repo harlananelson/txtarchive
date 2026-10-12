@@ -11,11 +11,17 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         pythonPackages = pkgs.python3.pkgs;
+        # Same string as txtarchive/_version.py. Consumers pinning a release
+        # should use a tag (see docs/PACKAGING.md), not this local flake version.
+        version = builtins.head (
+          builtins.match ".*__version__ = \"([^\"]+)\".*"
+            (builtins.replaceStrings ["\n"] [" "] (builtins.readFile ./txtarchive/_version.py))
+        );
       in
       {
         packages.default = pythonPackages.buildPythonApplication {
           pname = "txtarchive";
-          version = "0.1.0";
+          inherit version;
           src = self;
           format = "pyproject";
           

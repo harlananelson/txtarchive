@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from .header import logger  # Import logger for consistency
+from .source_paths import strip_source_stamps
 
 DEFAULT_MAX_TOKENS = 10000  # Target chunk size (adjustable)
 DEFAULT_OUTPUT_DIR = "split_txtarchive"  # Where split files go
@@ -8,6 +9,34 @@ DEFAULT_OUTPUT_DIR = "split_txtarchive"  # Where split files go
 # Patterns for archive file boundaries
 _LLM_FRIENDLY_SEPARATOR = "################################################################################\n# FILE "
 _STANDARD_SEPARATOR = "---\nFilename: "
+
+
+def _approx_tokens(text):
+    """Whitespace-token estimate used to pack archive parts.
+
+    Provenance stamp lines are ignored so a stamped archive stays in the same
+    parts as the unstamped plan. Text without ``SOURCE FILE:`` is counted with
+    ``len(text.split())``, which is the historical estimate.
+    """
+    if "SOURCE FILE:" not in text:
+        return len(text.split())
+    return len(strip_source_stamps(text).split())
+
+
+def section_part_numbers(content, max_tokens=None, *, llm_friendly=True):
+    """1-based part number for each file section, using split packing.
+
+    ``max_tokens is None`` (the archive is not split) puts every section in
+    part 1. Otherwise sections are packed the same way as ``split_file``.
+    """
+    separator = _LLM_FRIENDLY_SEPARATOR if llm_friendly else _STANDARD_SEPARATOR
+    if separator not in content:
+        return []
+    _header, chunks = _pack_sections(content, separator, max_tokens)
+    numbers = []
+    for part, chunk in enumerate(chunks, 1):
+        numbers.extend([part] * len(chunk))
+    return numbers
 
 
 def _content_key(text):
@@ -85,7 +114,7 @@ def split_file(file_path, max_tokens=DEFAULT_MAX_TOKENS, output_dir=DEFAULT_OUTP
 
     file_name = Path(file_path).stem  # e.g., 'txtarchive'
     file_ext = Path(file_path).suffix  # e.g., '.txt'
-    total_tokens = len(content.split())  # Approximate token count
+    total_tokens = _approx_tokens(content)  # Approximate token count
 
     outputs = []
     if total_tokens <= max_tokens:
@@ -123,6 +152,43 @@ def _remove_stale_parts(output_dir, file_name, file_ext, outputs):
             logger.info(f"Removed stale chunk: {f}")
 
 
+def _pack_sections(content, separator, max_tokens):
+    """Group file sections into parts. Returns ``(header, chunks)``.
+
+    ``max_tokens is None`` keeps every section in one part. A part is flushed
+    only when it already holds a section and the next one would exceed the
+    budget, matching the historical splitter (an oversized section still
+    occupies a part by itself).
+    """
+    parts = content.split(separator)
+    header = parts[0]  # Archive header (before first file section)
+    if header and not header.endswith("\n"):
+        header += "\n"
+    sections = parts[1:]
+
+    if max_tokens is None:
+        blobs = [separator + section for section in sections]
+        return header, ([blobs] if blobs else [])
+
+    chunks = []  # each item is a list of (separator + section) strings
+    current = []
+    current_tokens = _approx_tokens(header)
+
+    for section in sections:
+        section_with_sep = separator + section
+        section_tokens = _approx_tokens(section_with_sep)
+        if current and current_tokens + section_tokens > max_tokens:
+            chunks.append(current)
+            current = []
+            current_tokens = _approx_tokens(header)
+        current.append(section_with_sep)
+        current_tokens += section_tokens
+
+    if current:
+        chunks.append(current)
+    return header, chunks
+
+
 def _split_on_boundaries(content, separator, file_name, file_ext, max_tokens,
                          output_dir, update_only=False):
     """Split archive content at file section boundaries. Returns chunk paths.
@@ -132,28 +198,7 @@ def _split_on_boundaries(content, separator, file_name, file_ext, max_tokens,
     back at part 1, so a single uploaded chunk still maps numbered names to
     checkout paths.
     """
-    parts = content.split(separator)
-    header = parts[0]  # Archive header (before first file section)
-    if header and not header.endswith("\n"):
-        header += "\n"
-    sections = parts[1:]  # Individual file sections
-
-    chunks = []  # each item is a list of (separator + section) strings
-    current = []
-    current_tokens = len(header.split())
-
-    for section in sections:
-        section_with_sep = separator + section
-        section_tokens = len(section_with_sep.split())
-        if current and current_tokens + section_tokens > max_tokens:
-            chunks.append(current)
-            current = []
-            current_tokens = len(header.split())
-        current.append(section_with_sep)
-        current_tokens += section_tokens
-
-    if current:
-        chunks.append(current)
+    header, chunks = _pack_sections(content, separator, max_tokens)
 
     outputs = []
     total = len(chunks)
@@ -189,7 +234,7 @@ def _split_by_lines(content, file_name, file_ext, max_tokens, output_dir,
     outputs = []
 
     for line in lines:
-        line_tokens = len(line.split())
+        line_tokens = _approx_tokens(line)
         if current_tokens + line_tokens > max_tokens and current_chunk:
             outputs.append(_emit(
                 os.path.join(output_dir, f"{file_name}_part{part_num}{file_ext}"),

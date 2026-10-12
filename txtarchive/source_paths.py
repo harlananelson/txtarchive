@@ -27,6 +27,13 @@ _HASH_LINE = re.compile(r"^#{10,}\s*$")
 _SOURCE_RE = re.compile(
     r"^# source:\s+(.+?)\s+\(repo\s+(.+?)(?:\s+@\s+([0-9a-fA-F]+))?\)\s*$"
 )
+# Provenance lines inserted for Copilot retrieval. Unpack drops them.
+# A whole-line stamp is ``SOURCE FILE: <path> (part N)``. A stamp inserted
+# inside a line longer than the interval has the same text and no extra newline.
+STAMP_LINE_RE = re.compile(r"^SOURCE FILE: .+ \(part \d+\)\s*$")
+STAMP_INLINE_RE = re.compile(r"SOURCE FILE: .+? \(part \d+\)")
+DEFAULT_STAMP_INTERVAL = 2000
+INDEX_INSTRUCTION_LIMIT = 8000
 _MANIFEST_ROW = re.compile(r"^#\s+(.+?)\s+\|\s+(.+?)\s+\|\s+(\d+)\s*$")
 _LINE_NUMBER = re.compile(r"^\s*\d+\|(.*)$")
 
@@ -324,6 +331,252 @@ def knowledge_file_text(entry: ArchiveEntry, git: GitContext) -> str:
     return first + "\n" + entry.content
 
 
+def source_stamp(source: str, part: int) -> str:
+    """One provenance line: ``SOURCE FILE: <path> (part N)``."""
+    return f"SOURCE FILE: {source} (part {int(part)})"
+
+
+def strip_source_stamps(text: str) -> str:
+    """Remove provenance stamps so unpack restores the archived bytes.
+
+    Whole-line stamps are dropped. A stamp inserted in the middle of a long
+    line is removed as a substring and does not leave an extra newline.
+    Text with no ``SOURCE FILE:`` marker is returned unchanged.
+    """
+    if not text or "SOURCE FILE:" not in text:
+        return text
+    kept: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if STAMP_LINE_RE.match(line.rstrip("\r\n")):
+            continue
+        if "SOURCE FILE:" in line:
+            line = STAMP_INLINE_RE.sub("", line)
+        kept.append(line)
+    return "".join(kept)
+
+
+def insert_source_stamps(
+    content: str,
+    source: str,
+    part: int,
+    interval: int = DEFAULT_STAMP_INTERVAL,
+) -> str:
+    """Stamp ``content`` so a retrieved chunk can name its origin.
+
+    A stamp line is placed at the start. Further stamps follow every
+    ``interval`` characters of the original text, on line boundaries when the
+    text has them. A line longer than the gap gets the stamp inline so the
+    line can be restored by deleting that substring.
+
+    ``interval`` counts original characters only. Stamps themselves are not
+    counted, and removing them with :func:`strip_source_stamps` returns
+    ``content``.
+    """
+    if interval <= 0:
+        interval = DEFAULT_STAMP_INTERVAL
+    stamp = source_stamp(source, part)
+    if content == "":
+        return stamp + "\n"
+    out: list[str] = [stamp + "\n"]
+    since = 0
+    index = 0
+    length = len(content)
+    while index < length:
+        remaining = interval - since
+        if remaining <= 0:
+            out.append(stamp + "\n")
+            since = 0
+            continue
+        window = content[index : index + remaining]
+        newline_at = window.find("\n")
+        if newline_at != -1:
+            take = newline_at + 1
+            out.append(window[:take])
+            index += take
+            since += take
+            if since >= interval and index < length:
+                out.append(stamp + "\n")
+                since = 0
+            continue
+        if index + remaining < length:
+            out.append(window)
+            out.append(stamp)
+            index += remaining
+            since = 0
+            continue
+        out.append(content[index:])
+        break
+    return "".join(out)
+
+
+def stamp_llm_archive(
+    content: str,
+    part_numbers: list[int],
+    interval: int = DEFAULT_STAMP_INTERVAL,
+) -> str:
+    """Insert provenance stamps into each LLM-friendly file body.
+
+    ``part_numbers`` aligns with file sections in order. The archive header,
+    manifest, and ``# FILE`` metadata stay untouched. Standard archives are
+    returned unchanged.
+    """
+    pieces = content.split(_LLM_SPLIT)
+    if len(pieces) <= 1:
+        return content
+    header, tails = pieces[0], pieces[1:]
+    if len(tails) != len(part_numbers):
+        return content
+    stamped = [header]
+    for tail, part in zip(tails, part_numbers):
+        stamped.append(_LLM_SPLIT + _stamp_section_tail(tail, part, interval))
+    return "".join(stamped)
+
+
+def _source_from_section_tail(tail: str) -> str:
+    """Repo path from an LLM section tail, else the archive-relative name."""
+    alias = ""
+    for line in tail.splitlines():
+        if line.startswith("# path:"):
+            value = line.split(": ", 1)[1].strip()
+            if value:
+                return value
+        if not alias and ": " in line and not line.startswith("#"):
+            alias = line.split(": ", 1)[1].strip()
+    return alias or "unknown"
+
+
+def _stamp_section_tail(tail: str, part: int, interval: int) -> str:
+    """Stamp the body of one LLM section tail (text after ``# FILE ``)."""
+    lines = tail.splitlines(keepends=True)
+    close = None
+    for index, line in enumerate(lines):
+        if index == 0:
+            continue
+        if _HASH_LINE.match(line.rstrip("\r\n")):
+            close = index
+            break
+    if close is None:
+        return tail
+    head = "".join(lines[: close + 1])
+    body = "".join(lines[close + 1 :])
+    lead_len = len(body) - len(body.lstrip("\n"))
+    payload = body[lead_len:]
+    stamped = insert_source_stamps(
+        payload, _source_from_section_tail(tail), part, interval
+    )
+    return head + body[:lead_len] + stamped
+
+
+def flattened_source_name(source: str) -> str:
+    """Flatten a repo-relative path into one filename.
+
+    ``docs/status-validity.qmd`` becomes ``docs__status-validity.qmd``.
+    Directory separators become ``__`` so ``a/b`` and ``a_b`` stay distinct.
+    """
+    text = source.replace("\\", "/").strip()
+    parts = [part for part in text.split("/") if part not in ("", ".", "..")]
+    flat = "__".join(parts) if parts else "file"
+    flat = re.sub(r"[^A-Za-z0-9._-]+", "-", flat).strip(".-")
+    return flat or "file"
+
+
+def unique_flattened_name(source: str, used: set[str]) -> str:
+    """Return a flattened name that is not already in ``used``."""
+    base = flattened_source_name(source)
+    if base not in used:
+        used.add(base)
+        return base
+    if "." in base:
+        stem, ext = base.rsplit(".", 1)
+        ext = "." + ext
+    else:
+        stem, ext = base, ""
+    number = 2
+    while True:
+        candidate = f"{stem}-{number}{ext}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        number += 1
+
+
+def one_line_description(content: str, width: int = 72) -> str:
+    """First informative line of a file, collapsed and truncated."""
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line or line.strip("-#=*`\"' ") == "":
+            continue
+        if line.startswith("SOURCE FILE:"):
+            continue
+        if line.startswith(("# Cell", "# Markdown Cell", "# Raw Cell", "# MAGIC")):
+            continue
+        if line in ('"""', "'''"):
+            continue
+        line = re.sub(r"\s+", " ", line).replace("|", "/")
+        if len(line) > width:
+            line = line[: width - 3].rstrip() + "..."
+        return line
+    return ""
+
+
+def render_copilot_index(
+    entries: list[ArchiveEntry],
+    part_numbers: list[int],
+    git: GitContext,
+    *,
+    terse: bool = False,
+    stamped: bool = False,
+    side_stamped: bool = False,
+    stamp_interval: int = DEFAULT_STAMP_INTERVAL,
+    per_file: Optional[list[tuple[str, ArchiveEntry]]] = None,
+) -> str:
+    """Compact index an agent can paste into its instructions.
+
+    Each row is ``part.section | path | description``. ``section`` is the
+    ``# FILE N`` number (global, not restarted per part).
+    """
+    lines = [
+        "# txtarchive copilot index",
+        f"# repo: {git.repo_name} @ {git.commit or 'none'} ({git.branch or 'none'})",
+    ]
+    if stamped:
+        lines.append(
+            "# Archive chunks include a line `SOURCE FILE: <path> (part N)`, "
+            f"repeated about every {stamp_interval} characters."
+        )
+    elif side_stamped:
+        lines.append(
+            "# Per-file and knowledge exports include `SOURCE FILE:` stamps. "
+            "The bundled archive text does not."
+        )
+    else:
+        lines.append("# Map part.section (the archive part and # FILE number) to a path.")
+    if not terse:
+        lines.append("# part.section | path | description")
+    lines.append("")
+    for index, entry in enumerate(entries, 1):
+        part = part_numbers[index - 1] if index - 1 < len(part_numbers) else 1
+        if terse:
+            lines.append(f"{part}.{index} {entry.source}")
+        else:
+            desc = one_line_description(entry.content)
+            lines.append(f"{part}.{index} | {entry.source} | {desc}")
+    if per_file:
+        lines.append("")
+        lines.append("# per-file" if terse else "# per-file | path | description")
+        for name, entry in per_file:
+            if terse:
+                lines.append(f"{name} {entry.source}")
+            else:
+                lines.append(
+                    f"{name} | {entry.source} | {one_line_description(entry.content)}"
+                )
+    text = "\n".join(lines)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
 def parse_knowledge_text(text: str) -> Optional[dict]:
     """Parse a knowledge file. None when the first line is not a source header."""
     if not text:
@@ -341,7 +594,7 @@ def parse_knowledge_text(text: str) -> Optional[dict]:
         "path": match.group(1),
         "repo": match.group(2),
         "commit": match.group(3),
-        "content": rest,
+        "content": strip_source_stamps(rest),
     }
 
 
@@ -400,6 +653,8 @@ def iter_llm_sections(content: str):
                 continue
             break
         body = rest.lstrip("\n")
+        # Copilot provenance lines are not file content.
+        body = strip_source_stamps(body)
         if meta.get("line-numbers") == "on":
             body = strip_line_numbers(body)
         yield filename, body, meta
