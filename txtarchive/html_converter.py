@@ -33,22 +33,41 @@ _DATABRICKS_MODEL_ASSIGN_RE = re.compile(
 _DATABRICKS_PLOT_TYPES = {"image", "plot", "images", "plots"}
 
 
-def _extract_model_payload(html):
+# Script bodies only. A mention of the marker in a Quarto <pre> or <p>
+# must not select the Databricks path.
+_SCRIPT_BODY_RE = re.compile(r"(?is)<script\b[^>]*>(.*?)</script>")
+_DATABRICKS_META_RE = re.compile(
+    r"(?is)<meta\b[^>]*\bname\s*=\s*['\"]databricks-html-version['\"]"
+)
+# Keys a nested command-result object may carry. A table row with extra
+# columns is not treated as a nested result.
+_RESULT_OBJECT_KEYS = {
+    "type", "data", "arguments", "metadata", "name", "schema",
+    "overflow", "truncated", "summary", "cause", "fileName", "fileNames",
+    "datasetInfos", "removedWidgets", "addedWidgets", "plotOptions", "pos",
+}
+_RESULT_TYPES = _DATABRICKS_PLOT_TYPES | {
+    "html", "htmlsandbox", "table", "listresults", "ansi", "text", "markdown",
+}
+_DUMP_LIMIT = 4000
+
+
+def _extract_quoted_assignment(text):
     """Return the JS string assigned to __DATABRICKS_NOTEBOOK_MODEL, or None.
 
     Handles single- or double-quoted literals and simple backslash escapes,
     so a raw-JSON fallback (which contains double quotes) is not truncated.
     """
-    match = _DATABRICKS_MODEL_ASSIGN_RE.search(html)
+    match = _DATABRICKS_MODEL_ASSIGN_RE.search(text)
     if not match:
         return None
     quote = match.group(1)
     i = match.end()
     chars = []
-    while i < len(html):
-        ch = html[i]
-        if ch == "\\" and i + 1 < len(html):
-            chars.append(html[i + 1])
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and i + 1 < len(text):
+            chars.append(text[i + 1])
             i += 2
             continue
         if ch == quote:
@@ -58,14 +77,33 @@ def _extract_model_payload(html):
     return None
 
 
+def _extract_model_payload(html):
+    """Return the model assignment from a <script> body, or None.
+
+    Searching only script bodies keeps a code sample in <pre> from being
+    decoded as the notebook.
+    """
+    for body in _SCRIPT_BODY_RE.findall(html or ""):
+        payload = _extract_quoted_assignment(body)
+        if payload is not None:
+            return payload
+    return None
+
+
 def is_databricks_notebook_html(html):
-    """Return True if this looks like a Databricks HTML notebook export."""
+    """Return True if this looks like a Databricks HTML notebook export.
+
+    A head meta tag, or the model assignment inside a script element.
+    A prose or code-sample mention of the marker is not enough.
+    """
     if not html:
         return False
-    return (
-        "__DATABRICKS_NOTEBOOK_MODEL" in html
-        or 'name="databricks-html-version"' in html
-        or "name='databricks-html-version'" in html
+    head = re.search(r"(?is)<head\b[^>]*>(.*?)</head>", html)
+    if head and _DATABRICKS_META_RE.search(head.group(1)):
+        return True
+    return any(
+        _DATABRICKS_MODEL_ASSIGN_RE.search(body)
+        for body in _SCRIPT_BODY_RE.findall(html)
     )
 
 
@@ -141,11 +179,44 @@ def _cell_language(cmd, model):
     return ""
 
 
+def _is_result_object(obj):
+    """True for a nested command result, not a table row."""
+    if not isinstance(obj, dict) or "data" not in obj:
+        return False
+    typ = obj.get("type")
+    if not isinstance(typ, str) or typ.strip().lower() not in _RESULT_TYPES:
+        return False
+    return set(obj).issubset(_RESULT_OBJECT_KEYS)
+
+
+def _scrub_embedded_images(text):
+    """Drop data-URI images that survived HTML-to-markdown conversion."""
+    if not text or "base64" not in text:
+        return text
+    return re.sub(
+        r"data:image/[^;\"'\s]+;base64,[A-Za-z0-9+/=\r\n]+",
+        "[Databricks image output omitted]",
+        text,
+    )
+
+
+def _bounded_dump(data, limit=_DUMP_LIMIT):
+    """Render an unrecognised result payload without returning empty text."""
+    try:
+        text = json.dumps(data, default=str, ensure_ascii=False)
+    except Exception:
+        text = str(data)
+    text = _scrub_embedded_images(text)
+    if len(text) > limit:
+        text = text[:limit] + "\n[... truncated]"
+    return text
+
+
 def _visible_html_text(html):
     """Turn an HTML result blob into visible text without keeping markup."""
     if not html or not str(html).strip():
         return ""
-    html = str(html)
+    html = _replace_base64_with_placeholders(str(html))
     if PANDOC_AVAILABLE:
         try:
             return convert_html_with_pandoc(html).strip()
@@ -157,9 +228,16 @@ def _visible_html_text(html):
 
 
 def _result_to_text(results):
-    """Render a command's results as markdown, or a placeholder for plots."""
+    """Render a command's results as markdown, or a placeholder for plots.
+
+    Non-empty data that does not match a known shape is dumped, capped,
+    rather than dropped. Empty results stay empty; the cell heading is
+    still emitted by the caller.
+    """
     if not results:
         return ""
+    if not isinstance(results, dict):
+        return _bounded_dump(results)
     typ = (results.get("type") or "").strip()
     typ_l = typ.lower()
     data = results.get("data")
@@ -169,9 +247,22 @@ def _result_to_text(results):
         if typ_l == "htmlsandbox" and not (isinstance(data, str) and data.strip()):
             return f"[Databricks {typ} output omitted]"
         text = _visible_html_text(data if isinstance(data, str) else "")
-        return text or f"[Databricks {typ} output omitted]"
+        return _scrub_embedded_images(text) or f"[Databricks {typ} output omitted]"
+    if (
+        typ_l == "listresults"
+        and isinstance(data, list)
+        and data
+        and all(_is_result_object(item) for item in data)
+    ):
+        parts = [part for part in (_result_to_text(item) for item in data) if part and part.strip()]
+        return "\n\n".join(parts)
     if typ_l in {"table", "listresults"} or data not in (None, "", [], {}):
-        return _tabular_or_text(data)
+        rendered = _tabular_or_text(data)
+        if rendered and str(rendered).strip():
+            return _scrub_embedded_images(rendered)
+        if data not in (None, "", [], {}):
+            logger.warning("unrecognised Databricks result shape type=%s", typ or "?")
+            return _bounded_dump(data)
     return ""
 
 
@@ -263,8 +354,9 @@ def databricks_html_to_markdown(html):
             parts.append("")
     text = "\n".join(parts).strip() + "\n"
     if not text.strip():
-        # Model decoded but produced no cells — still a real conversion,
-        # but never a 0-byte file.
+        # Backstop. parts always starts with a heading, so this does not
+        # run for a decoded model. Kept so a later edit cannot return
+        # empty markdown from a successful decode.
         return f"# {name}\n"
     return text
 
@@ -766,6 +858,20 @@ def convert_html_to_markdown_text(html_content, method='auto'):
         raise
 
 
+class HtmlConversionError(Exception):
+    """One or more HTML files in a directory failed to convert.
+
+    Files that succeeded are already written. ``failed`` is a list of
+    ``(path, message)`` pairs. The message is the exception text, not
+    the HTML.
+    """
+
+    def __init__(self, failed, converted):
+        self.failed = list(failed)
+        self.converted = list(converted)
+        super().__init__(f"{len(self.failed)} HTML file(s) failed to convert")
+
+
 def convert_html_documents_in_directory(directory, output_dir=None, method='auto',
                                         replace_existing=False, extract_images=True):
     """
@@ -781,6 +887,9 @@ def convert_html_documents_in_directory(directory, output_dir=None, method='auto
 
     Returns:
         list: List of (input_path, output_path) tuples for successful conversions.
+
+    Raises:
+        HtmlConversionError: If any file failed. Successes are already written.
     """
     directory = Path(directory)
     if output_dir is None:
@@ -790,6 +899,7 @@ def convert_html_documents_in_directory(directory, output_dir=None, method='auto
         output_dir.mkdir(parents=True, exist_ok=True)
 
     converted_files = []
+    failed = []
 
     for html_file in directory.rglob("*.html"):
         if html_file.name.startswith("."):
@@ -828,7 +938,11 @@ def convert_html_documents_in_directory(directory, output_dir=None, method='auto
 
         except Exception as e:
             logger.error(f"Failed to convert {html_file}: {e}")
+            failed.append((html_file, str(e)))
             continue
+
+    if failed:
+        raise HtmlConversionError(failed, converted_files)
 
     logger.info(f"Converted {len(converted_files)} HTML documents to markdown")
     return converted_files

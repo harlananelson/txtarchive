@@ -187,6 +187,7 @@ def test_decode_failure_raises():
 def _run_convert_html(html_path, output_path):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    # cwd is the fixture directory so the CLI log does not land in the repo.
     return subprocess.run(
         [
             sys.executable,
@@ -198,7 +199,7 @@ def _run_convert_html(html_path, output_path):
             "--no-extract-images",
             "--replace-existing",
         ],
-        cwd=str(REPO_ROOT),
+        cwd=str(Path(html_path).parent),
         env=env,
         capture_output=True,
         text=True,
@@ -239,3 +240,89 @@ def test_quarto_html_is_unchanged(tmp_path):
     assert "synthetic-probe-access" not in md
     assert "Language: python" not in md
     assert "## Cell 1" not in md
+
+
+def test_nbconvert_html_is_not_databricks():
+    html = (
+        "<!DOCTYPE html><html><head><title>Notebook</title></head><body>"
+        '<div class="jp-Notebook"><div class="jp-Cell"><pre>print(1)</pre></div></div>'
+        "</body></html>"
+    )
+    assert not is_databricks_notebook_html(html)
+    md = convert_html_to_markdown_text(html)
+    assert "print(1)" in md
+    assert "## Cell 1" not in md
+    assert "Language:" not in md
+
+
+def test_marker_mention_in_code_sample_stays_on_html_path():
+    """A Quarto page that quotes the Databricks marker is not a Databricks export."""
+    html = _quarto_html().replace(
+        "</main>",
+        "<p>The export marker is __DATABRICKS_NOTEBOOK_MODEL.</p>"
+        "<pre><code>var __DATABRICKS_NOTEBOOK_MODEL = 'not-a-payload'\n"
+        "&lt;meta name=\"databricks-html-version\" content=\"1\"&gt;\n"
+        "<meta name=\"databricks-html-version\" content=\"1\">"
+        "</code></pre></main>",
+    )
+    assert not is_databricks_notebook_html(html)
+    md = convert_html_to_markdown_text(html)
+    assert "Analysis Results" in md
+    assert "## Cell 1" not in md
+    assert "Language: python" not in md
+
+
+def test_html_result_drops_data_uri_and_unknown_shape_is_not_empty():
+    png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    model = {
+        "name": "synthetic-shapes",
+        "language": "python",
+        "commands": [
+            {
+                "position": 1,
+                "command": "displayHTML(img)",
+                "results": {
+                    "type": "html",
+                    "data": f'<p>region table</p><img src="data:image/png;base64,{png}">',
+                },
+            },
+            {
+                "position": 2,
+                "command": "display(widget)",
+                "results": {"type": "widget", "data": {"foo": "bar-token"}},
+            },
+            {
+                "position": 3,
+                "command": "display(parts)",
+                "results": {
+                    "type": "listResults",
+                    "data": [{"type": "ansi", "data": "nested-token"}],
+                },
+            },
+        ],
+    }
+    md = databricks_html_to_markdown(_databricks_html(model))
+    assert "region table" in md
+    assert png not in md
+    assert "data:image" not in md
+    assert "bar-token" in md
+    assert "nested-token" in md
+
+
+def test_cli_directory_nonzero_when_one_file_fails(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "good.html").write_text(_databricks_html(), encoding="utf-8")
+    (src / "bad.html").write_text(
+        _databricks_html(payload="!!!!not-a-notebook-model!!!!"),
+        encoding="utf-8",
+    )
+    out = tmp_path / "out"
+    failed = _run_convert_html(src, out)
+    assert failed.returncode != 0
+    assert "Failed to convert" in (failed.stderr + failed.stdout)
+    good_md = out / "good.md"
+    assert good_md.exists() and good_md.stat().st_size > 0
+    _assert_expected_cells(good_md.read_text(encoding="utf-8"))
+    bad_md = out / "bad.md"
+    assert not bad_md.exists() or bad_md.stat().st_size == 0
