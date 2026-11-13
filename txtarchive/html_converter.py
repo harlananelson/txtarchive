@@ -7,7 +7,9 @@ base64 image extraction. Follows the word_converter.py pattern.
 
 import os
 import re
+import json
 import base64
+import urllib.parse
 from pathlib import Path
 from .header import logger
 
@@ -17,6 +19,254 @@ try:
     PANDOC_AVAILABLE = True
 except ImportError:
     PANDOC_AVAILABLE = False
+
+
+
+# Databricks workspace "Export as HTML" embeds the notebook as a script
+# payload (var __DATABRICKS_NOTEBOOK_MODEL = '...'), not as visible HTML.
+# The usual strip-scripts-then-pandoc path therefore yields an empty
+# document. Decode the model and emit cell sources and text outputs instead.
+
+_DATABRICKS_MODEL_ASSIGN_RE = re.compile(
+    r"(?:var\s+)?__DATABRICKS_NOTEBOOK_MODEL\s*=\s*(['\"])",
+)
+_DATABRICKS_PLOT_TYPES = {"image", "plot", "images", "plots"}
+
+
+def _extract_model_payload(html):
+    """Return the JS string assigned to __DATABRICKS_NOTEBOOK_MODEL, or None.
+
+    Handles single- or double-quoted literals and simple backslash escapes,
+    so a raw-JSON fallback (which contains double quotes) is not truncated.
+    """
+    match = _DATABRICKS_MODEL_ASSIGN_RE.search(html)
+    if not match:
+        return None
+    quote = match.group(1)
+    i = match.end()
+    chars = []
+    while i < len(html):
+        ch = html[i]
+        if ch == "\\" and i + 1 < len(html):
+            chars.append(html[i + 1])
+            i += 2
+            continue
+        if ch == quote:
+            return "".join(chars)
+        chars.append(ch)
+        i += 1
+    return None
+
+
+def is_databricks_notebook_html(html):
+    """Return True if this looks like a Databricks HTML notebook export."""
+    if not html:
+        return False
+    return (
+        "__DATABRICKS_NOTEBOOK_MODEL" in html
+        or 'name="databricks-html-version"' in html
+        or "name='databricks-html-version'" in html
+    )
+
+
+def _decode_notebook_model(payload):
+    """Decode a __DATABRICKS_NOTEBOOK_MODEL string to a dict.
+
+    Databricks exports use base64(URL-encoded JSON). Fall back to
+    URL-decode-only and raw JSON. Raises ValueError if nothing parses.
+    """
+    if payload is None:
+        raise ValueError("could not decode __DATABRICKS_NOTEBOOK_MODEL")
+    # Encoded payloads may be line-wrapped; stripping whitespace is safe
+    # for base64 / percent-encoding. Do not strip the raw-JSON fallback,
+    # or spaces inside string values disappear.
+    compact = re.sub(r"\s+", "", payload)
+    if not compact and not payload.strip():
+        raise ValueError("could not decode __DATABRICKS_NOTEBOOK_MODEL")
+
+    def b64_then_unquote(s):
+        padded = s + "=" * (-len(s) % 4)
+        return urllib.parse.unquote(base64.b64decode(padded).decode("utf-8"))
+
+    def unquote_only(s):
+        return urllib.parse.unquote(s)
+
+    def raw(s):
+        return s
+
+    errors = []
+    # Try raw JSON first so a compacting pass cannot eat spaces inside
+    # string values. Encoded forms do not start with '{'.
+    candidates = (
+        (raw, payload.strip()),
+        (unquote_only, compact or payload),
+        (b64_then_unquote, compact or payload),
+    )
+    for decoder, source in candidates:
+        try:
+            text = decoder(source)
+        except Exception as exc:
+            errors.append(f"{decoder.__name__}: {exc}")
+            continue
+        if not text or not text.lstrip().startswith("{"):
+            errors.append(f"{decoder.__name__}: not a JSON object")
+            continue
+        try:
+            model = json.loads(text)
+        except json.JSONDecodeError as exc:
+            errors.append(f"{decoder.__name__}: {exc}")
+            continue
+        if isinstance(model, dict):
+            return model
+        errors.append(f"{decoder.__name__}: JSON was {type(model).__name__}, not an object")
+    raise ValueError(
+        "could not decode __DATABRICKS_NOTEBOOK_MODEL (" + "; ".join(errors) + ")"
+    )
+
+
+def _cell_language(cmd, model):
+    """Pick a fenced-code language, preferring the notebook language over 'auto'."""
+    source = cmd.get("command") or ""
+    if isinstance(source, str) and source.lstrip().startswith("%md"):
+        return "markdown"
+    lang = (cmd.get("commandLanguage") or cmd.get("language") or "").strip()
+    if lang and lang.lower() not in {"auto", "command"}:
+        return lang
+    model_lang = (model.get("language") or "").strip()
+    if model_lang:
+        return model_lang
+    ctype = (cmd.get("commandType") or "").strip()
+    if ctype and ctype.lower() not in {"auto", "command"}:
+        return ctype
+    return ""
+
+
+def _visible_html_text(html):
+    """Turn an HTML result blob into visible text without keeping markup."""
+    if not html or not str(html).strip():
+        return ""
+    html = str(html)
+    if PANDOC_AVAILABLE:
+        try:
+            return convert_html_with_pandoc(html).strip()
+        except Exception:
+            pass
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
+def _result_to_text(results):
+    """Render a command's results as markdown, or a placeholder for plots."""
+    if not results:
+        return ""
+    typ = (results.get("type") or "").strip()
+    typ_l = typ.lower()
+    data = results.get("data")
+    if typ_l in _DATABRICKS_PLOT_TYPES:
+        return f"[Databricks {typ or 'image'} output omitted]"
+    if typ_l in {"html", "htmlsandbox"}:
+        if typ_l == "htmlsandbox" and not (isinstance(data, str) and data.strip()):
+            return f"[Databricks {typ} output omitted]"
+        text = _visible_html_text(data if isinstance(data, str) else "")
+        return text or f"[Databricks {typ} output omitted]"
+    if typ_l in {"table", "listresults"} or data not in (None, "", [], {}):
+        return _tabular_or_text(data)
+    return ""
+
+
+def _tabular_or_text(data):
+    if data is None:
+        return ""
+    if isinstance(data, str):
+        return data
+    if isinstance(data, dict):
+        headers = data.get("headers") or data.get("columns") or []
+        rows = data.get("data") or data.get("rows") or data.get("values") or []
+        if headers or rows:
+            lines = []
+            if headers:
+                lines.append("| " + " | ".join(str(h) for h in headers) + " |")
+                lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+            for row in rows:
+                lines.append(_row_to_md(row, headers))
+            return "\n".join(lines)
+        return ""
+    if isinstance(data, list):
+        if not data:
+            return ""
+        if all(isinstance(x, str) for x in data):
+            return "\n".join(data)
+        lines = []
+        for row in data:
+            lines.append(_row_to_md(row, headers=None))
+        return "\n".join(lines)
+    return str(data)
+
+
+def _row_to_md(row, headers):
+    if isinstance(row, dict):
+        if headers:
+            cells = ["" if row.get(h) is None else str(row.get(h)) for h in headers]
+        else:
+            cells = ["" if v is None else str(v) for v in row.values()]
+        return "| " + " | ".join(cells) + " |"
+    if isinstance(row, list):
+        cells = ["" if c is None else str(c) for c in row]
+        return "| " + " | ".join(cells) + " |"
+    return str(row)
+
+
+def databricks_html_to_markdown(html):
+    """Decode a Databricks HTML export into markdown of cells and outputs.
+
+    Raises ValueError if the file looks like a Databricks export but the
+    notebook model cannot be decoded. Never returns empty markdown in
+    that case (a silent empty conversion would look like a clean scan).
+    """
+    if not is_databricks_notebook_html(html):
+        raise ValueError("not a Databricks HTML notebook export")
+    payload = _extract_model_payload(html)
+    if payload is None:
+        raise ValueError(
+            "Databricks HTML has no __DATABRICKS_NOTEBOOK_MODEL payload"
+        )
+    model = _decode_notebook_model(payload)
+    name = model.get("name") or "Databricks notebook"
+    language = model.get("language") or ""
+    parts = [f"# {name}"]
+    if language:
+        parts.append(f"Language: {language}")
+    parts.append("")
+    commands = list(model.get("commands") or [])
+    commands.sort(key=lambda c: (c.get("position") is None, c.get("position") or 0))
+    for i, cmd in enumerate(commands, 1):
+        parts.append(f"## Cell {i}")
+        src = cmd.get("command") or ""
+        if isinstance(src, list):
+            src = "".join(src)
+        if str(src).strip():
+            fence = _cell_language(cmd, model)
+            parts.append(f"```{fence}".rstrip())
+            parts.append(str(src).rstrip())
+            parts.append("```")
+            parts.append("")
+        err = cmd.get("errorSummary") or cmd.get("error")
+        if err:
+            parts.append("### Error")
+            parts.append(str(err).rstrip())
+            parts.append("")
+        body = _result_to_text(cmd.get("results"))
+        if body and body.strip():
+            parts.append("### Output")
+            parts.append(body.rstrip())
+            parts.append("")
+    text = "\n".join(parts).strip() + "\n"
+    if not text.strip():
+        # Model decoded but produced no cells — still a real conversion,
+        # but never a 0-byte file.
+        return f"# {name}\n"
+    return text
 
 
 def strip_html_boilerplate(html):
@@ -424,6 +674,12 @@ def convert_html_to_markdown(html_path, method='auto', extract_images=True, imag
     with html_path.open("r", encoding="utf-8", errors="replace") as f:
         html_content = f.read()
 
+    # Databricks HTML exports hide the notebook in a script tag. Decode
+    # that model instead of stripping scripts and running pandoc.
+    if is_databricks_notebook_html(html_content):
+        logger.info("Detected Databricks HTML notebook export; decoding cell model")
+        return databricks_html_to_markdown(html_content)
+
     # Strip boilerplate
     html_content = strip_html_boilerplate(html_content)
 
@@ -479,6 +735,10 @@ def convert_html_to_markdown_text(html_content, method='auto'):
     """
     if not html_content:
         return ""
+
+    if is_databricks_notebook_html(html_content):
+        logger.info("Detected Databricks HTML notebook export; decoding cell model")
+        return databricks_html_to_markdown(html_content)
 
     # Strip boilerplate
     html_content = strip_html_boilerplate(html_content)

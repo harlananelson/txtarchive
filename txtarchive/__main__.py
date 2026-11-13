@@ -952,6 +952,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
                 logger.info(f"Successfully converted: {input_path} -> {output_path}")
             except Exception as e:
                 logger.error(f"Failed to convert {input_path}: {e}")
+                raise SystemExit(1)
         elif input_path.is_dir():
             output_dir = Path(args.output_path) if args.output_path else input_path
             converted_files = convert_html_documents_in_directory(
@@ -962,6 +963,7 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
             logger.info(f"Converted {len(converted_files)} HTML documents in {input_path}")
         else:
             logger.error(f"Input path does not exist: {input_path}")
+            raise SystemExit(1)
 
     def handle_describe(args):
         target_cmd = args.describe_command
