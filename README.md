@@ -125,6 +125,26 @@ Flattened knowledge files (see `--knowledge`) start with:
 # source: docs/status-validity.qmd (repo demo @ a1b2c3d)
 ```
 
+Copilot knowledge retrieval does not use the table of contents or the source manifest: it returns a chunk of a part file, and that chunk does not name the original path. `--source-stamps` (off by default) repeats a provenance line inside each LLM-friendly section:
+
+```
+SOURCE FILE: docs/status-validity.qmd (part 2)
+```
+
+`part` is the split-part number (`1` when the archive is not split). The line is repeated about every 2000 characters, on line boundaries, so a retrieved chunk still carries the path. `unpack`, `extract-notebooks`, and `extract-notebooks-and-quarto` drop these lines. A line in the source that is itself `SOURCE FILE: ... (part N)` would be dropped too.
+
+`--copilot-index` writes a sidecar small enough to paste into an agent's instructions. It warns above about 8000 characters; `--index-terse` drops the descriptions. `--per-file` writes one uploadable file per source document instead of bundled parts. None of these change the archive unless you pass the flag.
+
+`--source-stamps`, `--copilot-index`, and `--per-file` stay in the normal archive flow. They do not require `--phi-block`, and `--phi-block` does not turn them off. With blocking on, a skipped file is absent from those outputs; every file that is kept is still stamped, indexed, and exported.
+
+### PHI blocking
+
+Default mode is **pass-through**. txtarchive copies files into the archive and does not run the PHI scanner.
+
+`--phi-block` turns on optional blocking. A file that matches a rule (`ssn`, `mrn`, `dob`, `patient-id`) is skipped as a whole. It is left out of the archive, split parts, stamped text, the Copilot index, per-file exports, and knowledge files. The source file is not written, renamed, or otherwise changed. There is no redaction mode.
+
+Each skip is one log line, `skipped | <repo-relative path> | <rule category>`. The log does not include the matched text or nearby lines. The default log is `<output_stem>_phi_skipped.log` next to the archive. `--phi-log PATH` moves that file. `--phi-log` is ignored when `--phi-block` is off, and the scanner still does not run. The same line is also written to the txtarchive logger.
+
 ### Why Two Formats?
 
 1. **Standard Format**: Preserves exact file structure for reconstruction
@@ -137,6 +157,8 @@ Flattened knowledge files (see `--knowledge`) start with:
    - Parser: `sections = content.split("################################################################################\n# FILE ")`
 
 ## Installation
+
+Install from a checkout for development, or pin a GitHub tag in another project. Versioning, `pip` / `pyproject.toml` Git dependencies, and Nix pins are in [docs/PACKAGING.md](docs/PACKAGING.md).
 
 ```bash
 git clone https://github.com/harlananelson/txtarchive.git
@@ -224,6 +246,14 @@ python -m txtarchive archive <directory> <output_file> [options]
 - `--line-numbers` - Prefix each LLM-friendly content line with its line number (`unpack` strips them)
 - `--knowledge` - Also write numbered flattened files in `<output_stem>_knowledge/`
 - `--knowledge-dir DIR` - Where those knowledge files go (implies `--knowledge`)
+- `--source-stamps` - LLM-friendly only. Stamp each file section with `SOURCE FILE: <repo-relative path> (part N)` at the start and again every `--stamp-interval` characters (default 2000), so a Copilot chunk carries its origin. Unpack and extract ignore these lines. Off by default
+- `--stamp-interval N` - Characters between those stamps (default 2000). Passing it turns `--source-stamps` on
+- `--copilot-index` - Write `<output_stem>_index.md` mapping `part.section` to the repo path, plus a one-line description. Warns when the file is over about 8000 characters
+- `--index-terse` - Same index without descriptions (implies `--copilot-index`)
+- `--per-file` - Also write one file per source document, path flattened (`docs/a.qmd` → `docs__a.qmd`), for upload instead of bundled parts
+- `--per-file-dir DIR` - Where those files go (implies `--per-file`)
+- `--phi-block` - Optional PHI blocking. Default is pass-through (the scanner is not run). A match is skipped entirely and logged by repo-relative path and rule category. Does not turn provenance flags off
+- `--phi-log PATH` - Skip log for `--phi-block` (default: `<output_stem>_phi_skipped.log` next to the archive). Ignored unless `--phi-block` is set
 
 **Examples:**
 
@@ -360,6 +390,21 @@ python -m txtarchive archive PATH/TO/REPO archive/repo_llm.txt \
 ```
 
 Upload `archive/repo_llm.txt`, the files in `archive/split_repo_llm/`, or `archive/repo_llm_knowledge/`. Each split part repeats the source manifest. Each knowledge file starts with `# source: <path> (repo <name> @ <sha>)`.
+
+When the upload target is Microsoft 365 Copilot, add provenance stamps, a pasteable index, or one file per source document:
+
+```bash
+python -m txtarchive archive PATH/TO/REPO archive/repo_llm.txt \
+    --llm-friendly \
+    --source-stamps \
+    --copilot-index \
+    --per-file \
+    --split-output \
+    --max-tokens 75000 \
+    --file_types .py .qmd .R .r .ipynb .md .yaml
+```
+
+That writes `archive/repo_llm_index.md` and `archive/repo_llm_files/`. Split parts are stamped `SOURCE FILE: <path> (part N)`. If the index is longer than about 8000 characters, the run warns and `--index-terse` shortens it. Leave the new flags off to keep the previous archive bytes.
 
 Ask Copilot (or another model) something like:
 
@@ -510,6 +555,9 @@ MIT License
 - LLM-friendly archives include a patch-instruction block (`--no-patch-instructions` to omit) and optional `--line-numbers`
 - `--knowledge` writes flattened `<n>-<stem>.txt` files whose first line is `# source: <path> (repo <name> @ <sha>)`
 - Split parts each carry the full manifest. Old archives without these fields still unpack
+- Optional Copilot retrieval aids, all off by default: `--source-stamps` / `--stamp-interval` (provenance lines inside LLM-friendly sections; unpack ignores them), `--copilot-index` / `--index-terse` (`<stem>_index.md`, warns over about 8000 characters), and `--per-file` / `--per-file-dir` (one flattened file per source document). These stay on their own flags and are not tied to PHI blocking
+- Optional `--phi-block` (default pass-through; the scanner is not run). A matching file is skipped from every output and logged at `<stem>_phi_skipped.log` as path plus rule category. The source file is left unchanged. No redaction mode
+- Packaging: single version in `txtarchive/_version.py` (0.2.0), read by `pyproject.toml`. See [docs/PACKAGING.md](docs/PACKAGING.md)
 
 ### v0.2.0
 - Auto-detection of archive format in `unpack` command

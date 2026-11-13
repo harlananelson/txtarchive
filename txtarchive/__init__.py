@@ -1,4 +1,6 @@
 # txtarchive/__init__.py
+from ._version import __version__
+
 from .packunpack import (
     concatenate_files,
     archive_subdirectories,
@@ -27,6 +29,7 @@ from .report_extractor import (
 )
 
 __all__ = [
+    '__version__',
     'concatenate_files',
     'archive_subdirectories',
     'combine_all_archives',

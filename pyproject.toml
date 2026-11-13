@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "txtarchive"
-version = "0.2.0"
+dynamic = ["version"]
 authors = [
   { name="Harlan A Nelson", email="harlananelson@gmail.com" },
 ]
@@ -32,6 +32,9 @@ txtarchive = "txtarchive.__main__:main"
 packages = ["txtarchive"] # Or use find:
 # packages = { find = {} }
 include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "txtarchive._version.__version__"}
 
 [project.optional-dependencies]
 dev = [
