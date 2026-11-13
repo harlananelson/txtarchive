@@ -930,7 +930,11 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
 
     def handle_convert_html(args):
         from pathlib import Path
-        from .html_converter import convert_html_to_markdown, convert_html_documents_in_directory
+        from .html_converter import (
+            convert_html_to_markdown,
+            convert_html_documents_in_directory,
+            HtmlConversionError,
+        )
         input_path = Path(args.input_path)
         extract_images = not args.no_extract_images
         image_dir = Path(args.image_dir) if args.image_dir else None
@@ -952,16 +956,25 @@ python -m txtarchive ingest --file "archive/txtarchive.txt"
                 logger.info(f"Successfully converted: {input_path} -> {output_path}")
             except Exception as e:
                 logger.error(f"Failed to convert {input_path}: {e}")
+                raise SystemExit(1)
         elif input_path.is_dir():
             output_dir = Path(args.output_path) if args.output_path else input_path
-            converted_files = convert_html_documents_in_directory(
-                input_path, output_dir, method=args.method,
-                replace_existing=args.replace_existing,
-                extract_images=extract_images
-            )
+            try:
+                converted_files = convert_html_documents_in_directory(
+                    input_path, output_dir, method=args.method,
+                    replace_existing=args.replace_existing,
+                    extract_images=extract_images
+                )
+            except HtmlConversionError as e:
+                logger.error(
+                    f"Converted {len(e.converted)} HTML documents in {input_path}; "
+                    f"{len(e.failed)} failed"
+                )
+                raise SystemExit(1)
             logger.info(f"Converted {len(converted_files)} HTML documents in {input_path}")
         else:
             logger.error(f"Input path does not exist: {input_path}")
+            raise SystemExit(1)
 
     def handle_describe(args):
         target_cmd = args.describe_command
