@@ -3,13 +3,25 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # The nixpkgs pin above is from 2025-08 and only has Claude Code 1.0.65.
+    # This input stays on nixos-unstable so `claude` can move without moving
+    # Python, Pandoc, or Quarto.
+    nixpkgs-claude.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils, ... }@inputs:
+  outputs = { self, nixpkgs, nixpkgs-claude, flake-utils, ... }@inputs:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        # claude-code is unfree. Allow that package only.
+        claudePkgs = import nixpkgs-claude {
+          inherit system;
+          config.allowUnfreePredicate = pkg:
+            builtins.elem (nixpkgs-claude.lib.getName pkg) [
+              "claude-code"
+            ];
+        };
         pythonPackages = pkgs.python3.pkgs;
       in
       {
@@ -39,6 +51,7 @@
             pkgs.quarto
             pkgs.pandoc # CRITICAL: Added pandoc binary so pypandoc works
             pkgs.uv     # CRITICAL: Use standalone Rust binary
+            claudePkgs.claude-code
           ];
 
           nativeBuildInputs = [ 
@@ -46,6 +59,22 @@
           ];
 
           shellHook = ''
+            # nix-name: give this shell a name when getpwuid has none for the uid.
+            # Pure nix shells on iuhlwolfap1122 otherwise prompt "I have no name!".
+            # No LD_PRELOAD. The nixpkgs nss_wrapper is linked to a newer glibc than
+            # the host, and preloading it breaks host binaries started from the shell.
+            if ! id -un >/dev/null 2>&1; then
+            _nn_dir="''${TMPDIR:-/tmp}/nix-name-$$"
+            mkdir -p "$_nn_dir"
+            _nn_name=$(logname 2>/dev/null || printf '%s' "''${USER:-nixuser}")
+            printf '%s\n' '#!/bin/sh' "printf '%s\\n' '$_nn_name'" > "$_nn_dir/whoami"
+            chmod +x "$_nn_dir/whoami"
+            export PATH="$_nn_dir:''${PATH}"
+            export USER="$_nn_name"
+            export LOGNAME="$_nn_name"
+            export PS1="$_nn_name@\h:\w\\$ "
+            unset _nn_dir _nn_name
+            fi
             export USER=''${USER:-$(whoami)}
             export UV_LINK_MODE=copy
 
@@ -63,6 +92,12 @@
                 echo "WARNING: pandoc binary not found!"
             else
                 echo "✅ Pandoc linked: $(pandoc --version | head -n 1)"
+            fi
+
+            if ! command -v claude &> /dev/null; then
+                echo "WARNING: claude binary not found!"
+            else
+                echo "✅ Claude linked: $(claude --version | head -n 1)"
             fi
           '';
         };
